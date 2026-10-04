@@ -30,6 +30,7 @@
   };
   function msg(j, st) {
     var e = j && j.error; if (typeof e === "string") return e; if (e && e.message) return e.message;
+    if (st === 404) return "The CardHound beta isn't open yet. Try again a bit later.";
     return st === 0 ? "Can't reach CardHound right now. Check your connection." : "Something went wrong (" + st + "). Try again.";
   }
   function signedOut() { setSession(null); if (!/^#\/welcome/.test(location.hash)) location.hash = "#/welcome"; }
