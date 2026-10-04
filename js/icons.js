@@ -1,0 +1,48 @@
+/* Refined line icons (24px grid, 1.6 stroke, currentColor). */
+window.CH_ICON = (function () {
+  var P = {
+    scan: '<path d="M4 8V6.5A2.5 2.5 0 0 1 6.5 4H8M16 4h1.5A2.5 2.5 0 0 1 20 6.5V8M20 16v1.5a2.5 2.5 0 0 1-2.5 2.5H16M8 20H6.5A2.5 2.5 0 0 1 4 17.5V16"/><path d="M7.5 12h9"/>',
+    report: '<path d="M7 3.5h7l4.5 4.5v12.5H7z"/><path d="M14 3.5V8h4.5M10 12.5h5.5M10 16h3.5"/>',
+    markets: '<path d="M3.5 17.5l5-5.5 4 3.5 7.5-8"/><path d="M15 7.5h5v5"/>',
+    deals: '<path d="M3.5 11.6V4.5a1 1 0 0 1 1-1h7.1l8.9 8.9-8.1 8.1z"/><circle cx="8" cy="8" r="1.4"/>',
+    more: '<rect x="4" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6"/>',
+    camera: '<path d="M4 8.5h3l1.8-2.5h6.4L17 8.5h3v10H4z"/><circle cx="12" cy="13.2" r="3.4"/>',
+    spark: '<path d="M12 3.5l1.7 5.1 5.1 1.7-5.1 1.7L12 17.1l-1.7-5.1-5.1-1.7 5.1-1.7z"/><path d="M18.5 15.5l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z"/>',
+    check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+    plug: '<path d="M9 3.5V7M15 3.5V7M6.5 7h11v3.5a5.5 5.5 0 0 1-11 0z"/><path d="M12 16v4.5"/>',
+    shield: '<path d="M12 3.5l7.5 2.8v5.6c0 4.3-3.2 7.9-7.5 8.6-4.3-.7-7.5-4.3-7.5-8.6V6.3z"/><path d="M9 12l2.2 2.2L15.2 10"/>',
+    sliders: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
+    up: '<path d="M7 14l5-5 5 5"/>', down: '<path d="M7 10l5 5 5-5"/>',
+    right: '<path d="M9.5 6l6 6-6 6"/>', left: '<path d="M14.5 6l-6 6 6 6"/>',
+    close: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
+    upload: '<path d="M12 15.5V4.5M7.5 9L12 4.5 16.5 9"/><path d="M4.5 15v4.5h15V15"/>',
+    lock: '<rect x="5.5" y="10.5" width="13" height="9.5" rx="2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/>',
+    clock: '<circle cx="12" cy="12" r="8"/><path d="M12 7.5V12l3 2"/>',
+    target: '<circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="2.2"/><path d="M12 2.5v3.5M12 18v3.5M2.5 12H6M18 12h3.5"/>',
+    calc: '<rect x="5.5" y="3.5" width="13" height="17" rx="2"/><path d="M8.5 7.5h7M9 12h.01M12 12h.01M15 12h.01M9 15.5h.01M12 15.5h.01M15 15.5h.01"/>',
+    list: '<path d="M9 7h11M9 12h11M9 17h11"/><path d="M4 7l1 1 1.8-2M4 12l1 1 1.8-2M4 17l1 1 1.8-2"/>',
+    search: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>',
+    bell: '<path d="M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5l1.5 1.5H5z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
+    eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
+    gem: '<path d="M6.5 4.5h11l3.5 5L12 20 3 9.5z"/><path d="M3 9.5h18M9.5 4.5L12 20l2.5-15.5"/>',
+    handshake: '<path d="M3.5 11l4-4 3 1.5 2.5-1.5 3 .5 4.5 4"/><path d="M7 14.5l3 3c.6.6 1.5.6 2.1 0l4.4-4.4M9.5 12l2.5 2.5M3.5 11l3.5 3.5"/>',
+    copy: '<rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 8.5V5.5a1 1 0 0 0-1-1h-9a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h3"/>',
+    layers: '<path d="M12 4l8.5 4.5L12 13 3.5 8.5z"/><path d="M3.5 12.5L12 17l8.5-4.5M3.5 16.5L12 21l8.5-4.5"/>',
+    key: '<circle cx="8" cy="15" r="3.8"/><path d="M10.8 12.3L19 4.5M16 7.5l2.2 2.2M14 9.5l1.8 1.8"/>',
+    ext: '<path d="M10 4.5h-4a1.5 1.5 0 0 0-1.5 1.5v12A1.5 1.5 0 0 0 6 19.5h12a1.5 1.5 0 0 0 1.5-1.5v-4"/><path d="M14 4.5h5.5V10M19.5 4.5L11 13"/>',
+    file: '<path d="M7 3.5h7l4.5 4.5v12.5H7z"/><path d="M14 3.5V8h4.5"/>',
+    puzzle: '<path d="M9 4.5h3.5v2a1.75 1.75 0 1 0 3.5 0v-2h3.5V9h-2a1.75 1.75 0 1 0 0 3.5h2v7H16v-2a1.75 1.75 0 1 0-3.5 0v2H5.5V13h2a1.75 1.75 0 1 0 0-3.5h-2V4.5z"/>',
+    ledger: '<rect x="4.5" y="3.5" width="15" height="17" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    receipt: '<path d="M6 3.5h12v17l-2-1.4-2 1.4-2-1.4-2 1.4-2-1.4-2 1.4z"/><path d="M9 8h6M9 11.5h6M9 15h3.5"/>',
+    wallet: '<path d="M4 7.5A2 2 0 0 1 6 5.5h11.5v3"/><rect x="4" y="8.5" width="16" height="11" rx="2"/><path d="M16 14h1.5"/>',
+    mic: '<rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5M9 20.5h6"/>',
+    send: '<path d="M4.5 12L19.5 5l-4.5 14.5-3.2-6.3z"/><path d="M11.8 13.2L19.5 5"/>',
+    speaker: '<path d="M4.5 9.5h3.5L12.5 5.5v13L8 14.5H4.5z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>',
+    left: '<path d="M15 5.5L8.5 12l6.5 6.5"/>',
+    download: '<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19.5h14"/>'
+  };
+  return function (name, cls) {
+    return '<svg class="ic ' + (cls || '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (P[name] || '') + '</svg>';
+  };
+})();
