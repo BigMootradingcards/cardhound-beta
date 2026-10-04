@@ -95,3 +95,7 @@ body.bt-onwel #lv-line{display:none}
 .lv-ccmed{flex:none}
 .lv-bandcall~.lv-ccmed b{font-size:clamp(24px,7.4vw,32px)}
 .lv-sold .lv-sth:empty{background:linear-gradient(160deg,rgba(245,158,11,.10),rgba(255,255,255,.02));border:1px dashed rgba(245,158,11,.25)}
+/* licensed data switched on server-side: the comp screens say Live comps (green) */
+.topbar .badge-sample.bt-pill.bt-live{color:var(--good-t,#4ADE80);border-color:var(--good-ln,rgba(34,197,94,.45));background:var(--good-bg,rgba(34,197,94,.13))}
+.topbar .badge-sample.bt-pill.bt-live i{background:#22C55E;box-shadow:0 0 8px #22C55E}
+.bt-sample.bt-live{background:var(--good-bg,rgba(34,197,94,.1));border-color:var(--good-ln,rgba(34,197,94,.4))}

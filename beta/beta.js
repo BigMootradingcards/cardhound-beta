@@ -28,7 +28,8 @@
         '<li><span>' + I("camera") + '</span><div><b>Check a comp</b><small>Scan a card or type it: year, set, number, player, grade.</small></div></li>' +
         '<li><span>' + I("target") + '</span><div><b>Get the call</b><small>Buy, Hold or Sell, with the sold comps right under it.</small></div></li>' +
         '<li><span class="bt-tu">' + THUMB_UP + '</span><div><b>Tell us if it was right</b><small>Thumbs up or down on every report. A short note helps a lot.</small></div></li></ul>' +
-        '<div class="bt-sample"><span class="badge-sample"><i></i>Sample prices</span><p>Every price in the beta is <b>made-up sample data</b> for testing the app. Don\'t buy or sell on it. Real prices come later. Pro features are free during the beta.</p></div></div>';
+        (B.real ? '<div class="bt-sample bt-live"><p>Comps come from a licensed sold-price feed. Movers, Deals and Ledger screens still use sample data. Pro features are free during the beta.</p></div></div>' :
+        '<div class="bt-sample"><span class="badge-sample"><i></i>Sample prices</span><p>Every price in the beta is <b>made-up sample data</b> for testing the app. Don\'t buy or sell on it. Real prices come later. Pro features are free during the beta.</p></div></div>');
       h += '<div class="card bt-a2hs" id="bt-a2hs"><div class="eyebrow">Put it on your Home Screen</div>' + (standalone() ? '<p class="small">You\'re already running CardHound from your Home Screen. Nice.</p>' :
         '<ol class="bt-steps"><li><span class="bt-n">1</span><div>In <b>Safari</b>, tap the <b>Share</b> button <span class="bt-ico">' + SHARE + '</span> at the bottom of the screen.</div></li>' +
         '<li><span class="bt-n">2</span><div>Scroll down and tap <b>Add to Home Screen</b> <span class="bt-ico">' + ADDSQ + '</span>.</div></li>' +
@@ -84,14 +85,14 @@
       view.innerHTML = '<section class="pl-pw bt-pro"><div class="pl-glow" aria-hidden="true"></div><div class="pl-crest">' + I("gem") + '</div><div class="pl-ey">CardHound Pro</div>' +
         '<h1 class="pl-h">Free during <em>the beta</em>.</h1><p class="bt-sub">You get every Pro feature while you test. No payments, no card, nothing to cancel.</p>' +
         '<ul class="pl-ben">' + ben.map(function (b) { return '<li><span class="pl-ck">' + I("check") + '</span><b>' + b + '</b></li>'; }).join("") + '</ul>' +
-        '<a class="btn btn-gold" href="#/scan">' + I("search") + 'Check a comp</a><p class="small dim" style="margin-top:12px">Beta prices are sample data.</p></section>';
+        '<a class="btn btn-gold" href="#/scan">' + I("search") + 'Check a comp</a><p class="small dim" style="margin-top:12px">' + (B.real ? "Comps from a licensed feed." : "Beta prices are sample data.") + '</p></section>';
     }
 
     /* ---------- About the beta ---------- */
     function about() {
       var w = B.who() || {};
       view.innerHTML = '<div class="lv-head"><div class="eyebrow">Settings</div><h1 class="h1" style="font-size:30px">About the <em>beta</em></h1></div>' +
-        '<div class="card"><dl class="kv small"><dt>You</dt><dd>' + esc(w.name || "Not signed in") + '</dd><dt>Prices</dt><dd><span class="badge-sample"><i></i>Sample prices</span> made up for testing</dd>' +
+        '<div class="card"><dl class="kv small"><dt>You</dt><dd>' + esc(w.name || "Not signed in") + '</dd><dt>Prices</dt><dd>' + (B.real ? "Licensed sold comps on Check and Report; sample on Movers, Deals and Ledger" : '<span class="badge-sample"><i></i>Sample prices</span> made up for testing') + '</dd>' +
         '<dt>Plan</dt><dd>Pro, free during the beta</dd><dt>Lookups</dt><dd id="bt-qs">checking…</dd><dt>Repeats</dt><dd id="bt-cache">Cached, so repeat checks are instant</dd><dt>The call</dt><dd>Needs ' + (window.CH_LIVE_CFG.thinN || 12) + '+ sales in 30 days' + (window.CH_LIVE_CFG.thinN < 12 ? " (lowered for thin sample data)" : "") + '</dd></dl></div>' +
         '<div class="cta-stack"><a class="btn btn-ghost" href="#/welcome">' + I("download") + 'How to add to Home Screen</a>' + (w.admin ? '<a class="btn btn-gold" href="#/admin">' + I("list") + 'Beta admin</a>' : "") +
         '<button class="btn btn-ghost" id="bt-out">' + I("lock") + 'Sign out</button></div><p class="small dim" style="margin-top:12px">CardHound never bids, buys or messages anyone. Estimates and opinions, not financial advice.</p>';
@@ -105,7 +106,7 @@
         '<p><b>Your invite.</b> Your code signs you in as a friend slot (for example "Friend 2"). We don\'t ask for your name, email or phone.</p>' +
         '<p><b>Searches.</b> What you search, the card it matched and when, saved under your slot name, so Maurice can see what to fix.</p>' +
         '<p><b>Thumbs.</b> Your thumbs up or down and the optional note, with the card and grade.</p>' +
-        '<p><b>Photos.</b> Used to find the card, then not kept.</p><p><b>Prices.</b> Sample data made up for testing. Not real sales, not advice.</p>' +
+        '<p><b>Photos.</b> Used to find the card, then not kept.</p><p><b>Prices.</b> ' + (B.real ? "Sold comps from a licensed feed on Check and Report; sample data elsewhere." : "Sample data made up for testing. Not real sales.") + ' Not advice.</p>' +
         '<p>Maurice can turn off any invite. Ask him to delete your slot\'s data any time.</p></div>';
     }
 

@@ -88,12 +88,46 @@
     return slowNote(round(null));
   }
 
+  /* ---------- the one server switch: when the API serves licensed data (COMMERCIAL_LICENSE=signed + a licensed source),
+   * data.sample turns false and the comp screens drop their "Sample prices" wording. No rebuild needed. The sample-only
+   * screens (Movers, Deals, Ledger, tools) keep saying Sample. ---------- */
+  var COMP_ROUTES = { scan: 1, ask: 1, report: 1, lresults: 1, analyze: 1, welcome: 1, about: 1, pro: 1 };
+  var SWAP = [[/Sample prices · CardHound Beta · exact variant only/g, "CardHound Beta · exact variant only"], [/CardHound Beta · sample prices\./g, "CardHound Beta."],
+    [/Every price here is made up for testing\./g, "Sold comps from a licensed data feed."], [/Made up for the beta, not real sales\./g, "Licensed sold comps."],
+    [/ ?\(sample prices in the beta\)/g, ""], [/ ?Sample prices in the beta\./g, ""], [/Sample sales by grade/g, "Sales by grade"], [/sample sold comps/g, "sold comps"],
+    [/\bsample (Raw|PSA|BGS|SGC|CGC)/g, "$1"], [/^Sample prices$/g, "Live comps"]];
+  function route0() { return ((location.hash || "").replace(/^#\/?/, "").split(/[/?]/)[0]) || "scan"; }
+  function swapText(root) {
+    if (!B.real || !COMP_ROUTES[route0()] || !root) return;
+    var w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT), n, line = document.getElementById("lv-line");
+    while ((n = w.nextNode())) { if (line && line.contains(n)) continue; var t = n.nodeValue, u = t; SWAP.forEach(function (r) { u = u.replace(r[0], r[1]); }); if (u !== t) n.nodeValue = u; }
+  }
+  function applyTier() {
+    var de = document.documentElement; de.classList.toggle("bt-real", !!B.real);
+    window.CH_LIVE_CFG.thinN = B.real ? 12 : 5;
+    var pill = document.querySelector(".topbar .bt-pill");
+    if (pill) { var live = B.real && COMP_ROUTES[route0()]; pill.lastChild.nodeValue = live ? "Live comps" : "Sample prices"; pill.classList.toggle("bt-live", !!live);
+      pill.title = live ? "Comps on this screen come from a licensed data feed" : "Prices on this screen are made-up sample data"; }
+    swapText(document.getElementById("view"));
+  }
+  function setReal(on) { on = !!on; if (on === B.real) return; B.real = on; try { sessionStorage.setItem("ch_beta_real", on ? "1" : "0"); } catch (e) {} applyTier(); }
+  try { B.real = sessionStorage.getItem("ch_beta_real") === "1"; } catch (e) { B.real = false; }
+  window.CH_LIVE_CFG.thinN = B.real ? 12 : 5;
+  B.applyTier = applyTier;
+  realFetch(API + "/v1/beta/status", { credentials: "omit", mode: "cors" }).then(function (r) { return r.json(); }).then(function (j) { if (j && j.data) setReal(j.data.sample === false); }).catch(function () {});
+  document.addEventListener("DOMContentLoaded", function () {
+    applyTier();
+    var v = document.getElementById("view");
+    if (v && window.MutationObserver) new MutationObserver(function () { if (B.real) swapText(v); }).observe(v, { childList: true, subtree: true });
+    window.addEventListener("hashchange", function () { setTimeout(applyTier, 0); });
+  });
+
   /* ---------- /api/live/* -> the CardHound API ---------- */
   function adapt(r) {
     return r.json().catch(function () { return {}; }).then(function (j) {
       if (r.status === 401) { signedOut(); return J(403, { error: "Enter your invite code to keep going." }); }
       if (!r.ok) return J(r.status, { error: msg(j, r.status) });
-      if (j.data) { B.data = j.data; window.CH_LIVE_CFG.thinN = j.data.sample ? 5 : 12; }
+      if (j.data) { B.data = j.data; setReal(j.data.sample === false); window.CH_LIVE_CFG.thinN = B.real ? 12 : 5; }
       return J(200, j);
     });
   }
