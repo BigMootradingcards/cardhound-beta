@@ -24,7 +24,7 @@
   }
   B.fetch = apiFetch;
   B.json = function (path, opt) {
-    return apiFetch(path, opt).then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) {
+    return apiFetch(path, opt).catch(netErr).then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) {
       if (r.status === 401) { signedOut(); }
       if (!r.ok) { var e = new Error(msg(j, r.status)); e.status = r.status; e.code = j.error && j.error.code; throw e; } return j; }); });
   };
@@ -40,8 +40,9 @@
     return realFetch(API + "/v1/beta/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: code }), credentials: "omit", mode: "cors" })
       .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) {
         if (!r.ok) { var e = new Error(msg(j, r.status)); e.code = j.error && j.error.code; throw e; }
-        setSession(j.token, j.beta); return j.beta; }); });
+        setSession(j.token, j.beta); return j.beta; }); }, netErr);
   };
+  function netErr(e) { var x = new Error("Can't reach CardHound right now. Check your connection and try again in a minute."); x.code = "network"; x.cause = e; throw x; }
   var qs = new URLSearchParams(location.search), code = qs.get("code");
   if (code) {                                                    /* never leave the code in the address bar or history */
     qs.delete("code"); var clean = location.pathname + (qs.toString() ? "?" + qs : "") + "#/welcome";
