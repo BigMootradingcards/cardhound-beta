@@ -11,7 +11,9 @@
   function set(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {} }
   function who() { try { return JSON.parse(get(WK) || "null"); } catch (e) { return null; } }
   function setSession(tok, w) { set(TK, tok || null); set(WK, tok && w ? JSON.stringify(w) : null); }
-  window.CH_LIVE_CFG = { live: true, beta: true, label: "Sample prices (made up for the beta)", thinN: 5 };
+  /* ask_hound: Ask your Hound (#/dig) on by default in the friends beta. video_v2 / capture stay OFF (filming only). */
+  window.CH_LIVE_CFG = { live: true, beta: true, label: "Sample prices (made up for the beta)", thinN: 5,
+    features: { ask_hound: true, video_v2: false, capture: false } };
   try { sessionStorage.removeItem("ch_plan_preview"); } catch (e) {}          /* the beta is always Pro: no free-plan preview */
   var realFetch = window.fetch.bind(window);
   var B = window.CH_BETA = { api: API, token: function () { return get(TK) || ""; }, who: who, setSession: setSession, data: null, queue: null };
@@ -149,6 +151,7 @@
         .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return r.ok ? J(200, j.confirm || j) : J(r.status, { error: msg(j, r.status) }); }); }); }
     if (p === "/api/live/usage") return apiFetch("/v1/beta/status").then(function (r) { return r.json(); }).then(function (j) { return J(200, { usage: j.queue || {}, live: j.data || {} }); });
     if (p === "/api/live/comps") return Promise.resolve(J(200, {}));
+    if (p === "/api/live/listings") return Promise.resolve(J(200, { mode: "not_connected", connected: false, sample: false, rows: [], look_only: true, say: "Live eBay listings aren't in the beta yet" }));   /* For sale now: never real or invented rows in the beta; the Preview shows labeled Sample rows */
     return Promise.resolve(J(404, { error: "Not in the beta yet." }));
   }
   window.fetch = function (input, opt) {

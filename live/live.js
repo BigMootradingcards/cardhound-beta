@@ -28,6 +28,7 @@
     function money(v) { if (v == null || isNaN(v)) return "—"; var a = Math.abs(v), s = a >= 1000 ? Math.round(a).toLocaleString("en-US") : a.toFixed(a % 1 ? 2 : 0); return (v < 0 ? "\u2212$" : "$") + s; }
     function foot() { return '<div class="foot"><b>CardHound Beta · sample prices.</b><br>Every price here is made up for testing. Exact-variant matching. Estimates and opinions, not financial advice.</div>'; }
     function compsOf(r) { return r.comps || {}; }
+    function GF(k) { return !!(window.CHGrowth && window.CHGrowth.on(k)); }   /* FEATURE_UPSELL / FEATURE_REFERRAL / FEATURE_EBAY_PLACE_MAX (server env, OFF by default) */
 
     /* ---------- Free vs Pro (see out/pricing/FREE_VS_PRO.md). This private link is the owner's admin account: always Pro.
      * "Preview the free plan" (Settings, or ?plan=free) shows exactly what a free account sees. Real enforcement lives on the
@@ -44,7 +45,7 @@
       markets: ["Movers, New Highs & Most Searched", "See which cards are moving before you buy."],
       deals: ["Hidden Gems & Deals", "Cards selling under their comps, found for you."],
       ledger: ["Portfolio & Ledger", "Every card you own, valued on sold comps."],
-      tool: ["Sniper & pro tools", "Max-bid math and reminders. You always place the bid."] };
+      tool: ["Auction Watch & pro tools", "Auction alerts and reminders. You always place the bid."] };
     function lockView(route) {
       var L = PRO_LOCK[route]; if (!L || !isFree() || view.querySelector(".pl-lock")) return;
       var inner = view.innerHTML;
@@ -54,9 +55,12 @@
       view.querySelector(".pl-lock").onclick = function (e) { e.preventDefault(); S.proWhy = route; location.hash = "#/pro"; };
     }
     function target(r) { var c = compsOf(r); if (r.grade && c[r.grade]) return r.grade; var k = Object.keys(c).filter(function (g) { return c[g].median != null; }); return k[0] || r.grade || null; }
-    /* the real card a report is about (identity only): sent with "add this to my watchlist", grade tabs, watch / snipe */
+    /* the real card a report is about (identity only): sent with "add this to my watchlist", grade tabs, watch / Auction Watch */
     function cardOf(r) { if (!r) return undefined; return { card_id: r.card_id, feed_card_id: r.feed_card_id, name: r.name, year: r.year, set: r.set, player: r.player, card_number: r.card_number,
       variant: r.variant, subset: r.subset, category: r.category, grade: r.grade, description: r.description, image: (r.image || {}).url || null }; }
+    /* Auction Watch reminders on this phone ("ch_live_snipes" = the pre-rename key, moved over once) */
+    var AWK = "ch_live_auction_watch";
+    try { if (!localStorage.getItem(AWK) && localStorage.getItem("ch_live_snipes")) { localStorage.setItem(AWK, localStorage.getItem("ch_live_snipes")); localStorage.removeItem("ch_live_snipes"); } } catch (e) {}
     function rdJ(k) { try { return JSON.parse(localStorage.getItem(k) || "[]"); } catch (e) { return []; } }
     function wrJ(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
     function watchLocal(c, g) { var a = rdJ("ch_voice_watch"), nm = (c.name || c.card_id) + (g ? " · " + (g === "RAW" ? "Raw" : g) : "");   /* the Watchlist tab reads this */
@@ -222,7 +226,7 @@
         '</div></div></section>';
       if ((m.warnings || []).length) h += '<p class="lv-warn1">' + I("shield") + '<span>' + esc(m.warnings[0]) + '</span></p>';
       /* THE answer: call + comp, big. Free plan: the comp stays, the call spot is a locked Pro tile. */
-      if (isFree()) h += freeComp(gl, tc, thin);
+      if (isFree()) { h += freeComp(gl, tc, thin); if (GF("upsell") && !slab) h += window.CHGrowth.teaser({ I: I }); }
       else { h += '<section class="lv-cc call-' + call.cls + '" aria-label="The comp and the call"><div class="lv-cch"><span>' + esc(gl) + ' · ' + (tc.window_days || 30) + '-day comp</span>' +
         '<button class="lv-info" id="lv-info" aria-expanded="false" aria-controls="lv-why" aria-label="Why this call">i</button></div><div class="lv-ccrow">';
       if (call.cls === "BANDS") h += '<div class="lv-ccall lv-bandcall"><div><span class="callpill cp-BUY">BUY</span><b class="num">under ' + money(call.buyMax) + '</b></div><div><span class="callpill cp-SELL">SELL</span><b class="num">' + money(call.median) + '+</b></div></div>';
@@ -238,14 +242,19 @@
       }
       /* sold comps, right under */
       h += '<nav class="lv-gtabs" role="tablist" aria-label="Grade">' + tabs.map(function (k) { return '<button role="tab" class="lv-gt' + (k === cur ? " on" : "") + '" data-g="' + esc(k) + '" aria-selected="' + (k === cur) + '">' + esc(k === "RAW" ? "Raw" : k) + '</button>'; }).join("") + '</nav>';
-      h += '<div id="lv-gpane"></div>';
-      h += '<section class="sec lv-after"><div class="lv-acts"><button class="btn btn-ghost" id="lv-watch" type="button">' + I("eye") + 'Add to watchlist</button><button class="btn btn-ghost" id="lv-snipe" type="button" aria-expanded="false" aria-controls="lv-snipebox">' + I("target") + 'Snipe</button></div><div id="lv-snipebox" hidden></div>' +
+      var fsOn = S.view === "fs";   /* Sold | For sale now: eBay listings get their own tab + box, never mixed into our comps */
+      h += '<div class="fs-switch" role="tablist" aria-label="Sold or for sale"><button role="tab" type="button" data-sv="sold" class="' + (fsOn ? "" : "on") + '" aria-selected="' + !fsOn + '">Sold</button>' +
+        '<button role="tab" type="button" data-sv="fs" class="' + (fsOn ? "on" : "") + '" aria-selected="' + fsOn + '">For sale now</button></div>';
+      h += '<div id="lv-gpane"' + (fsOn ? " hidden" : "") + '></div>';
+      h += '<div id="lv-fs"' + (fsOn ? "" : " hidden") + '></div>';   /* For sale now: active eBay listings (look only), loaded when the tab is opened */
+      h += '<section class="sec lv-after"><div class="lv-acts"><button class="btn btn-ghost" id="lv-watch" type="button">' + I("eye") + 'Add to watchlist</button><button class="btn btn-ghost" id="lv-aw" type="button" aria-expanded="false" aria-controls="lv-awbox">' + I("target") + 'Auction Watch</button></div><div id="lv-awbox" hidden></div>' +
         '<div class="cta-stack"><a class="btn btn-gold" href="#/scan">' + I("camera") + 'Check another card</a><a class="btn btn-ghost" target="_blank" rel="noopener noreferrer" href="' + ebayUrl(r, cur) + '">' + I("ext") + 'eBay sold search</a></div>';
       if ((r.alternates || []).length) h += '<div class="lv-alts"><span class="small dim">Not your card?</span>' + r.alternates.map(function (a) { return '<button class="chip" data-alt="' + esc(a.name) + '">' + esc(a.name) + '</button>'; }).join("") + '</div>';
       h += '<p class="small dim lv-src"><span class="badge-sample bt-pill"><i></i>Sample prices</span> Made up for the beta, not real sales. Pop and grading odds unavailable. CardHound never bids or buys.</p></section>';
       view.innerHTML = h;
       var ib = document.getElementById("lv-info"), wy = document.getElementById("lv-why");
       var pc = view.querySelector(".pl-call"); if (pc) pc.onclick = function () { S.proWhy = "call"; };
+      var gt = view.querySelector(".up-tease"); if (gt) gt.onclick = function () { S.proWhy = "grade"; };
       if (ib) ib.onclick = function () { var open = wy.hidden; wy.hidden = !open; ib.setAttribute("aria-expanded", open); ib.classList.toggle("on", open); };
       function pane(k) {
         S.tab = k; S.tabFor = r.card_id;
@@ -256,47 +265,82 @@
           api("/api/live/comps", { card: cardOf(r), grade: k }).then(function (d) {
             ["comps", "sales_by_grade", "recent_by_grade", "feed_aggregate"].forEach(function (f) { r[f] = r[f] || {}; r[f][k] = (d[f] || {})[k] || (f === "sales_by_grade" ? [] : f === "recent_by_grade" ? null : {}); });
             r.lazy_grades = (r.lazy_grades || []).filter(function (x) { return x !== k; }); save();
-            var gq = document.getElementById("lv-gpane"); if (gq && S.tab === k && S.cur === r) gq.innerHTML = gradePane(r, k, k === g);
+            var gq = document.getElementById("lv-gpane"); if (gq && S.tab === k && S.cur === r) { gq.innerHTML = gradePane(r, k, k === g); if (S.view === "fs") forSale(r, k); }
           }, function (er) { var gq = document.getElementById("lv-gpane"); if (gq) gq.innerHTML = '<div class="sig-box bad">' + I("shield") + '<div>' + esc(er.message) + '</div></div>'; });
+          if (S.view === "fs") forSale(r, k);
           return;
         }
         gp.innerHTML = gradePane(r, k, k === g);
+        if (S.view === "fs") forSale(r, k);
       }
+      view.querySelectorAll("[data-sv]").forEach(function (b) { b.onclick = function () {
+        S.view = b.dataset.sv === "fs" ? "fs" : "sold"; var on = S.view === "fs";
+        view.querySelectorAll("[data-sv]").forEach(function (x) { var y = x.dataset.sv === S.view; x.classList.toggle("on", y); x.setAttribute("aria-selected", y); });
+        document.getElementById("lv-gpane").hidden = on; document.getElementById("lv-fs").hidden = !on;
+        if (on) forSale(r, S.tab || g); }; });
       view.querySelectorAll(".lv-gt").forEach(function (b) { b.onclick = function () { pane(b.dataset.g); }; });
       view.querySelectorAll("[data-alt]").forEach(function (b) { b.onclick = function () { search(b.dataset.alt); }; });
-      var wb = document.getElementById("lv-watch"), sbt = document.getElementById("lv-snipe");
+      var wb = document.getElementById("lv-watch"), sbt = document.getElementById("lv-aw");
       if (wb) wb.onclick = function () { var gg = S.tab || g; wb.disabled = true;
         api("/api/live/watch", { card: cardOf(r), grade: gg }).then(function (d) { watchLocal(d.card || cardOf(r), gg); wb.innerHTML = I("eye") + "On your watchlist"; toast((d.status || "added to watchlist").replace(/^./, function (c) { return c.toUpperCase(); }) + "."); },
           function (er) { wb.disabled = false; toast(er.message); }); };
-      if (sbt) sbt.onclick = function () { snipeBox(r, S.tab || g, call, tc, sbt); };
+      if (sbt) sbt.onclick = function () { auctionWatchBox(r, S.tab || g, call, tc, sbt); };
       pane(cur);
       U.setLastCard && U.setLastCard({ title: r.name, source: "live" });
     }
-    /* Snipe = look only: your max, the live eBay auctions, a reminder. CardHound never bids, never buys. */
-    function snipeBox(r, gg, call, tc, btn) {
-      var box = document.getElementById("lv-snipebox"); if (!box) return;
+    /* Auction Watch = look only: your max, the live eBay auctions, a reminder. CardHound never bids, never buys. */
+    function auctionWatchBox(r, gg, call, tc, btn) {
+      var box = document.getElementById("lv-awbox"); if (!box) return;
       box.hidden = !box.hidden; btn.setAttribute("aria-expanded", !box.hidden); if (box.hidden) return;
-      var mx = call && call.buyMax != null ? Math.floor(call.buyMax) : (tc && tc.median != null ? Math.floor(tc.median * BUY_RULE) : "");
-      function list() { var mine = rdJ("ch_live_snipes").filter(function (x) { return x.card_id === r.card_id; });
+      var PM = GF("ebay_place_max");   /* Place my max: the user types the max; no suggested max is shown or prefilled */
+      var mx = PM ? "" : call && call.buyMax != null ? Math.floor(call.buyMax) : (tc && tc.median != null ? Math.floor(tc.median * BUY_RULE) : "");
+      function list() { var mine = rdJ(AWK).filter(function (x) { return x.card_id === r.card_id; });
         return mine.length ? '<div class="lv-slist">' + mine.map(function (x) { return '<div class="lv-srow"><span><b>' + esc(x.grade === "RAW" ? "Raw" : x.grade) + ' · max ' + money(x.max) + '</b><small>' + (x.when ? "remind " + esc(new Date(x.when).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" })) + " ET" : "no reminder time") + '</small></span><button class="link-btn" data-sx="' + esc(x.id) + '">Remove</button></div>'; }).join("") + '</div>' : ""; }
       function draw() {
-        box.innerHTML = '<div class="card lv-snipe"><div class="eyebrow">Snipe · look only</div><p class="small muted">Set your max, open the live eBay auctions, save a reminder. CardHound never bids or buys: you place the bid yourself on eBay.</p>' +
+        box.innerHTML = '<div class="card lv-aw"><div class="eyebrow">Auction Watch · look only</div><p class="small muted">Set your max, open the live eBay auctions, save a reminder. CardHound never bids or buys: you place the bid yourself on eBay.</p>' +
           '<label class="lv-sl">Your max bid ($)<input id="lv-smax" class="lv-in" type="number" inputmode="decimal" min="1" step="1" value="' + esc(mx) + '"></label>' +
           '<label class="lv-sl">Remind me (the auction end, ET)<input id="lv-swhen" class="lv-in" type="datetime-local"></label>' +
-          '<div class="cta-stack"><a class="btn btn-gold" target="_blank" rel="noopener noreferrer" href="' + ebayLive(r, gg) + '">' + I("ext") + 'Open eBay auctions</a><button class="btn btn-ghost" id="lv-ssave" type="button">Save reminder</button></div>' +
-          (mx !== "" ? '<p class="small dim">Suggested max = the BUY line (' + money(mx) + '), from ' + esc((call && call.basis) || "recent sales") + '.</p>' : "") + list() + '</div>';
+          (PM ? '<div class="cta-stack"><button class="btn btn-gold" id="lv-pmax" type="button">' + I("target") + 'Place my max on eBay</button><button class="btn btn-ghost" id="lv-ssave" type="button">Save reminder</button></div>' :
+          '<div class="cta-stack"><a class="btn btn-gold" target="_blank" rel="noopener noreferrer" href="' + ebayLive(r, gg) + '">' + I("ext") + 'Open eBay auctions</a><button class="btn btn-ghost" id="lv-ssave" type="button">Save reminder</button></div>') +
+          (mx !== "" && !PM ? '<p class="small dim">Suggested max = the BUY line (' + money(mx) + '), from ' + esc((call && call.basis) || "recent sales") + '.</p>' : "") + list() + '</div>';
+        var pmb = document.getElementById("lv-pmax");
+        if (pmb) pmb.onclick = function () { placeMax(r, gg, { url: ebayLive(r, gg), isSearch: true, max: parseFloat(document.getElementById("lv-smax").value) || "", onSave: function (v) { saveMax(r, gg, v); draw(); } }); };
         document.getElementById("lv-ssave").onclick = function () {
           var v = parseFloat(document.getElementById("lv-smax").value), w = document.getElementById("lv-swhen").value;
           if (!(v > 0)) { toast("Set your max bid first."); return; }
-          var a = rdJ("ch_live_snipes"); a.unshift({ id: "ls" + Date.now(), card: r.name, card_id: r.card_id, grade: gg, max: v, when: w ? new Date(w).toISOString() : null, url: ebayLive(r, gg), saved: new Date().toISOString() }); wrJ("ch_live_snipes", a.slice(0, 50));
+          var a = rdJ(AWK); a.unshift({ id: "ls" + Date.now(), card: r.name, card_id: r.card_id, grade: gg, max: v, when: w ? new Date(w).toISOString() : null, url: ebayLive(r, gg), saved: new Date().toISOString() }); wrJ(AWK, a.slice(0, 50));
           if (w) { var dt = new Date(w), pad = function (n) { return String(n).padStart(2, "0"); }, st = dt.getUTCFullYear() + pad(dt.getUTCMonth() + 1) + pad(dt.getUTCDate()) + "T" + pad(dt.getUTCHours()) + pad(dt.getUTCMinutes()) + "00Z";
-            var ics = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//CardHound//Snipe reminder//EN", "BEGIN:VEVENT", "UID:" + Date.now() + "@cardhound", "DTSTAMP:" + st, "DTSTART:" + st, "SUMMARY:Snipe: " + String(r.name || "").replace(/[,;\n]/g, " ") + " max $" + v,
-              "DESCRIPTION:Look-only reminder. Bid yourself on eBay: " + ebayLive(r, gg), "BEGIN:VALARM", "TRIGGER:-PT5M", "ACTION:DISPLAY", "DESCRIPTION:Snipe reminder", "END:VALARM", "END:VEVENT", "END:VCALENDAR"].join("\r\n");
-            var aEl = document.createElement("a"); aEl.href = URL.createObjectURL(new Blob([ics], { type: "text/calendar" })); aEl.download = "cardhound-snipe.ics"; document.body.appendChild(aEl); aEl.click(); setTimeout(function () { URL.revokeObjectURL(aEl.href); aEl.remove(); }, 1000); }
+            var ics = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//CardHound//Auction Watch reminder//EN", "BEGIN:VEVENT", "UID:" + Date.now() + "@cardhound", "DTSTAMP:" + st, "DTSTART:" + st, "SUMMARY:Auction Watch: " + String(r.name || "").replace(/[,;\n]/g, " ") + " max $" + v,
+              "DESCRIPTION:Look-only reminder. Bid yourself on eBay: " + ebayLive(r, gg), "BEGIN:VALARM", "TRIGGER:-PT5M", "ACTION:DISPLAY", "DESCRIPTION:Auction Watch reminder", "END:VALARM", "END:VEVENT", "END:VCALENDAR"].join("\r\n");
+            var aEl = document.createElement("a"); aEl.href = URL.createObjectURL(new Blob([ics], { type: "text/calendar" })); aEl.download = "cardhound-auction-watch.ics"; document.body.appendChild(aEl); aEl.click(); setTimeout(function () { URL.revokeObjectURL(aEl.href); aEl.remove(); }, 1000); }
           toast(w ? "Reminder saved. Add the calendar file so your phone reminds you." : "Saved. Add a time to get a reminder."); draw(); };
-        box.querySelectorAll("[data-sx]").forEach(function (b) { b.onclick = function () { wrJ("ch_live_snipes", rdJ("ch_live_snipes").filter(function (x) { return x.id !== b.dataset.sx; })); draw(); }; });
+        box.querySelectorAll("[data-sx]").forEach(function (b) { b.onclick = function () { wrJ(AWK, rdJ(AWK).filter(function (x) { return x.id !== b.dataset.sx; })); draw(); }; });
       }
       draw();
+    }
+    /* For sale now (web/js/forsale.js): the exact card's active eBay listings from POST /api/live/listings. The server
+     * filters with the comps' own title rules and never invents a row: no eBay keys = "Connect eBay to see live listings"
+     * (with an opt-in Preview of clearly labeled Sample rows). Kept in memory only; eBay data never touches the comp or call. */
+    /* Place my max on eBay (FEATURE_EBAY_PLACE_MAX): web/js/growth.js. Type a max, confirm it, eBay opens; the user bids there. */
+    function placeMax(r, gg, o) { window.CHGrowth.placeMax(Object.assign({ U: U, I: I, card: r.name, grade: gg }, o)); }
+    function saveMax(r, gg, v) { var a = rdJ(AWK); a.unshift({ id: "ls" + Date.now(), card: r.name, card_id: r.card_id, grade: gg, max: v, when: null, url: ebayLive(r, gg), saved: new Date().toISOString() }); wrJ(AWK, a.slice(0, 50)); toast("Reminder saved for your " + money(v) + " max."); }
+    var FS = {};
+    function forSale(r, k) {
+      var box = document.getElementById("lv-fs"); if (!box || !window.CHForSale) return;
+      var gl = k === "RAW" ? "Raw" : k, key = r.card_id + "|" + k;
+      function med() { var m = (compsOf(r)[k] || {}).median; return m != null ? m : null; }
+      var shown = null;
+      function draw(d) { var b = document.getElementById("lv-fs"); if (!b || S.cur !== r || (S.tab || k) !== k) return; shown = d; b.innerHTML = window.CHForSale.html(d, { gradeLabel: gl, median: med(), preview: true, placeMax: GF("ebay_place_max") }); }
+      box.onclick = function (e) {
+        var pm = e.target.closest("[data-fs-pm]");
+        if (pm && shown && shown.rows) { var x = shown.rows[+pm.dataset.fsPm]; if (x && x.url && !x.sample) placeMax(r, k, { url: x.url, itemTitle: x.title, currentBid: x.price, onSave: function (v) { saveMax(r, k, v); } }); return; }
+        if (e.target.closest("[data-fs-preview]")) draw(window.CHForSale.sample(cardOf(r), k, med()));
+        else if (e.target.closest("[data-fs-retry]")) { delete FS[key]; forSale(r, k); }
+      };
+      if (FS[key] && Date.now() - FS[key].t < 10 * 60e3) { draw(FS[key].d); return; }
+      draw(null);
+      api("/api/live/listings", { card: cardOf(r), grade: k }).then(function (d) { if (d.mode !== "error") FS[key] = { t: Date.now(), d: d }; draw(d); },
+        function (er) { draw({ mode: "error", say: er.message }); });
     }
     function freeComp(gl, tc, thin) {
       return '<section class="lv-cc pl-cc" aria-label="The comp"><div class="lv-cch"><span>' + esc(gl) + ' · ' + (tc.window_days || 30) + '-day comp</span></div><div class="lv-ccrow">' +
@@ -380,6 +424,17 @@
 
     /* ---------- the paywall: CardHound Pro ---------- */
     function proScreen() { location.replace("#/pro"); }
+    /* FEATURE_UPSELL: the friendlier upgrade screen (web/js/growth.js). Lookup 11 on the free plan lands here (capHit). */
+    function upsellScreen() {
+      var why = S.proWhy; S.proWhy = null;
+      var w = why === "cap" ? "cap" : why === "grade" ? "grade" : why === "call" ? "call" : PRO_LOCK[why] ? "lock" : "";
+      view.innerHTML = window.CHGrowth.upsellHTML({ I: I, why: w, feature: PRO_LOCK[why] ? PRO_LOCK[why][0] : "", freeDaily: FREE_DAILY, referral: GF("referral"), inviteHref: "#/pro",
+        note: "Preview · prices approved by Maurice Oct 4 · nothing can be bought on this link" }) + '<p class="pl-fine" style="text-align:center"><a href="#/legal/terms">Terms</a> · <a href="#/legal/privacy">Privacy</a></p>';
+      var rf = view.querySelector(".up-ref"); if (rf) rf.onclick = function (e) { e.preventDefault(); toast("Invites run on CardHound accounts (the app). This private link has no account."); };
+      window.CHGrowth.upsellBind(view, { onClose: function () { if (history.length > 1) history.back(); else location.hash = "#/scan"; },
+        onBuy: function (k) { toast("Preview only: in the app this starts the 7-day free trial of Pro " + (k === "yearly" ? "Yearly" : "Monthly") + " (RevenueCat test mode). No charge here."); },
+        onRestore: function () { toast(isFree() ? "Preview: no purchases to restore on this link." : "This link is already Pro."); } });
+    }
     function trialLine(k) { return "Free for 7 days, then " + (k === "monthly" ? PRICE.monthly + "/mo" : PRICE.yearly + "/yr") + ". Cancel anytime before the trial ends and you won't be charged."; }
     function legalScreen(p) {
       var f = p.sub === "privacy" ? "PRIVACY_POLICY.md" : "TERMS_OF_SERVICE.md";
@@ -399,7 +454,9 @@
     U.moreItemsTop.push(["about", "sliders", "About the beta", "Your invite, sample prices, Home Screen how-to"]);
 
     /* ---------- per-screen theme + honest data strip ---------- */
+    var LEGACY_AW = { "#/sniper": "#/deals/auction-watch", "#/snipes": "#/deals/auction-watch", "#/deals/snipes": "#/deals/auction-watch", "#/auction-watch": "#/deals/auction-watch" };
     function onRoute() {
+      if (LEGACY_AW[location.hash]) { location.replace(LEGACY_AW[location.hash]); return; }   /* renamed from Sniper: old paths keep working */
       var p = U.parseHash(), b = document.body;
       var rt = KNOWN_ROUTES[p.route] ? p.route : "scan";   /* an unknown route renders Check: give it Check's (real) strip, not a Sample one */
       b.setAttribute("data-route", rt); b.setAttribute("data-sub", p.sub || "");

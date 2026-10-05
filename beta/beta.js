@@ -81,7 +81,7 @@
 
     /* ---------- Free during beta (replaces the paywall) ---------- */
     function pro() {
-      var ben = ["The call: Buy, Sell or Hold", "Sold comps by grade, newest first", "Movers, Hidden Gems, New Highs", "Watchlist and Sniper reminders", "Portfolio and Ledger"];
+      var ben = ["The call: Buy, Sell or Hold", "Sold comps by grade, newest first", "Movers, Hidden Gems, New Highs", "Watchlist and Auction Watch reminders", "Portfolio and Ledger"];
       view.innerHTML = '<section class="pl-pw bt-pro"><div class="pl-glow" aria-hidden="true"></div><div class="pl-crest">' + I("gem") + '</div><div class="pl-ey">CardHound Pro</div>' +
         '<h1 class="pl-h">Free during <em>the beta</em>.</h1><p class="bt-sub">You get every Pro feature while you test. No payments, no card, nothing to cancel.</p>' +
         '<ul class="pl-ben">' + ben.map(function (b) { return '<li><span class="pl-ck">' + I("check") + '</span><b>' + b + '</b></li>'; }).join("") + '</ul>' +

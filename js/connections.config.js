@@ -19,7 +19,7 @@ window.CH_SOURCES = [
     keyHelp: "Generate it yourself while signed in at psacard.com/publicapi, then paste only the token.",
     how: "Your own PSA API token", blurb: "Cert lookup, population and gem rate for your slabs." },
   { id: "companion", name: "CardHound Companion", mono: "CC", method: "extension", status: "coming",
-    how: "Browser extension", blurb: "When you're signed in to Card Ladder in your own browser, Companion recognizes the card on the page and opens a CardHound side panel: our call, Gem Hunt hits, Sniper, add to watchlist, add to portfolio. It never sends Card Ladder prices to CardHound." },
+    how: "Browser extension", blurb: "When you're signed in to Card Ladder in your own browser, Companion recognizes the card on the page and opens a CardHound side panel: our call, Gem Hunt hits, Auction Watch, add to watchlist, add to portfolio. It never sends Card Ladder prices to CardHound." },
   { id: "cardladder", name: "Card Ladder (official)", mono: "CL", method: "partner", status: "partner",
     how: "Official connection", blurb: "An official Card Ladder connection needs a partnership. Until then, use Import my collection." },
   { id: "pricecharting", name: "PriceCharting", mono: "PC", method: "none", status: "na", how: "Needs a commercial license", blurb: "Their API terms need a written commercial license, so user keys can't be used in CardHound." },
@@ -41,7 +41,7 @@ window.CH_FEATURES = {
   listings:   { label: "live listings vs comps", sources: ["ebay"] },
   saved:      { label: "your saved searches", sources: ["ebay"] },
   alerts:     { label: "deal alerts", sources: ["ebay"] },
-  sniper:     { label: "end-of-auction reminders", sources: ["ebay"] },
+  auction_watch: { label: "Auction Watch reminders", sources: ["ebay"] },
   bestoffer:  { label: "the Best Offer helper", sources: ["ebay"] },
   collection: { label: "your collection", sources: ["import"] },
   ledger:     { label: "auto-tracked eBay buys in your Ledger", sources: ["ebay"] }

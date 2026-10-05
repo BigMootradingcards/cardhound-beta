@@ -14,13 +14,13 @@
     photo: null, fromFlow: false, pickedCandidate: 0,
     conn: LS.get("conn", {}),
     keys: LS.get("keys", {}),
-    snipes: LS.get("snipes", []),
+    watches: LS.get("auctionWatch", null) || LS.get("snipes", []),   /* Auction Watch reminders ("snipes" = the pre-rename storage key, read once) */
     alerts: LS.get("alerts", { threshold: 20, on: true }),
     scopes: { movers: { view: "overall", value: null }, picks: { view: "overall", value: null }, searched: { view: "overall", value: null }, highs: { view: "overall", value: null } },
     moversDir: "up", meta: null, timers: []
   };
   var saveConn = function () { LS.set("conn", state.conn); LS.set("keys", state.keys); state.connDirty = true; };
-  var saveSnipes = function () { LS.set("snipes", state.snipes); };
+  var saveWatches = function () { LS.set("auctionWatch", state.watches); };
 
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
   function money(v, dec) {
@@ -82,7 +82,10 @@
     var parts = h.split("/");
     return { route: parts[0] || "scan", sub: parts[1] || null };
   }
+  /* Auction Watch (renamed from "Sniper", Oct 4, 2026): the old paths still work and land on the new one */
+  var LEGACY = { "#/sniper": "#/deals/auction-watch", "#/snipes": "#/deals/auction-watch", "#/deals/snipes": "#/deals/auction-watch", "#/deals/sniper": "#/deals/auction-watch", "#/auction-watch": "#/deals/auction-watch" };
   function go() {
+    var lg = LEGACY[(location.hash || "").replace(/\/$/, "")]; if (lg) { location.replace(lg); return; }
     clearTimers(); closeSheet(); state.connDirty = false; if (BOOM) BOOM.close(true);
     var p = parseHash();
     var fn = ROUTES[p.route] || ROUTES.scan;
@@ -232,6 +235,7 @@
       h += '<div class="sec">' + secHead("03", "Graded comps", "Sample · 30d") + '<div class="card"><table class="tbl"><thead><tr><th>Grade</th><th>Sales</th><th>Low</th><th>Median</th><th>High</th></tr></thead><tbody>' + gradedRows + '</tbody></table><p class="small muted" style="margin:10px 0 0">THIN = fewer than 5 sales in 30 days. Treat as soft.</p></div>' +
         '<div class="card" style="margin-top:10px"><div class="sec-head" style="margin-bottom:6px"><h3 class="h3">Recent sold (sample)</h3></div><table class="tbl"><tbody>' + sales + '</tbody></table>' +
         '<p class="small dim" style="margin:10px 0 0">Excluded: ' + r.dropped.map(function (x) { return money(x.price) + " (" + esc(x.why) + ")"; }).join("; ") + '.</p></div></div>';
+      if (window.CHForSale) h += '<div class="sec" id="rp-forsale">' + window.CHForSale.html(window.CHForSale.sample({ name: c.year + " " + c.set + " #" + c.number + " " + c.player }, "PSA 9", p9.comp), { gradeLabel: "PSA 9", median: p9.comp }) + '</div>';   /* For sale now: sample build = labeled Sample rows only */
       h += '<div class="sec">' + secHead("04", "Price trend", "Sample") + '<div class="card"><div class="seg" id="cg" style="margin-bottom:10px"><button data-g="Raw" class="on">Raw</button><button data-g="PSA 9">PSA 9</button><button data-g="PSA 10">PSA 10</button></div>' +
         '<div class="chart-wrap" id="chart"></div><div class="chart-legend"><span id="ch-l"></span><span id="ch-r"></span></div><div class="seg" id="cr" style="margin-top:12px"><button data-r="90">90 days</button><button data-r="365" class="on">1 year</button></div>' + gate("trend") + '</div></div>';
       h += '<div class="sec">' + secHead("05", "Pop and gem rate", "Sample") + '<div class="card"><div class="kpis" style="margin-top:0"><div class="kpi"><span>PSA 10</span><b class="num">' + pop.psa10.toLocaleString() + '</b></div><div class="kpi"><span>PSA 9</span><b class="num">' + pop.psa9.toLocaleString() + '</b></div><div class="kpi"><span>Gem rate</span><b class="num">' + (pop.psa10 / pop.total * 100).toFixed(1) + '%</b></div></div>' +
@@ -337,7 +341,7 @@
   function fmtEnds(min) { if (min >= 1440) return Math.round(min / 1440) + "d left"; if (min >= 60) return Math.floor(min / 60) + "h " + (min % 60) + "m left"; return min + "m left"; }
   function dealCard(d, withNote) {
     var diff = (d.price / d.comp - 1) * 100, good = diff < 0;
-    var act = d.type === "Auction" ? '<button class="btn btn-gold btn-xs" data-snipe="' + d.id + '">' + I("target") + 'Snipe</button>'
+    var act = d.type === "Auction" ? '<button class="btn btn-gold btn-xs" data-aw="' + d.id + '">' + I("target") + 'Watch</button>'
       : d.type === "Best Offer" ? '<button class="btn btn-gold btn-xs" data-offer="' + d.id + '">' + I("handshake") + 'Offer helper</button>'
       : '<button class="btn btn-ghost btn-xs" data-alert="1">' + I("bell") + 'Alert me</button>';
     return '<div class="deal"><div class="top"><b>' + esc(d.card) + '</b><span class="chip" style="height:22px;font-size:10.5px">' + d.type + '</span></div>' +
@@ -347,9 +351,9 @@
       '<div class="acts">' + act + '<button class="btn btn-ghost btn-xs" data-toast="Demo: sample listings have no eBay link.">' + I("eye") + 'View</button></div></div>';
   }
   function dealsScreen(p) {
-    var sub = ["deals", "watch", "gems", "snipes"].indexOf(p.sub) > -1 ? p.sub : "deals";
-    var head = '<div class="eyebrow">Buyer tools</div><h1 class="h1" style="font-size:30px">' + ({ deals: "Live <em>deals</em>", watch: "Your <em>watchlist</em>", gems: "Gem <em>Hunt</em>", snipes: "<em>Sniper</em>" }[sub]) + '</h1>' +
-      '<div class="subtabs" style="gap:18px">' + [["deals", "Deals"], ["watch", "Watchlist"], ["gems", "Gem Hunt"], ["snipes", "Sniper"]].map(function (t) { return '<button data-dsub="' + t[0] + '" class="' + (sub === t[0] ? "on" : "") + '">' + t[1] + '</button>'; }).join("") + '</div>';
+    var sub = ["deals", "watch", "gems", "auction-watch"].indexOf(p.sub) > -1 ? p.sub : "deals";
+    var head = '<div class="eyebrow">Buyer tools</div><h1 class="h1" style="font-size:30px">' + ({ deals: "Live <em>deals</em>", watch: "Your <em>watchlist</em>", gems: "Gem <em>Hunt</em>", "auction-watch": "Auction <em>Watch</em>" }[sub]) + '</h1>' +
+      '<div class="subtabs" style="gap:18px">' + [["deals", "Deals"], ["watch", "Watchlist"], ["gems", "Gem Hunt"], ["auction-watch", "Auction Watch"]].map(function (t) { return '<button data-dsub="' + t[0] + '" class="' + (sub === t[0] ? "on" : "") + '">' + t[1] + '</button>'; }).join("") + '</div>';
     Promise.all([D.getDeals(), D.getGems(), D.getSavedSearches()]).then(function (res) {
       var deals = res[0], gems = res[1], saved = res[2], body = "";
       state._deals = deals.concat(gems);
@@ -362,11 +366,11 @@
         body = gate("watchlist") + '<div id="vw-list"></div><div style="height:14px"></div>' + deals.filter(function (d) { return d.watch; }).map(function (d) { return dealCard(d); }).join("");
       } else if (sub === "gems") {
         body = '<p class="lead" style="margin-top:4px">Mislabeled or underdescribed listings priced under the sample comp. Look-only: CardHound never buys or bids for you.</p>' + gate("listings") + '<div id="vh-saved"></div><div style="height:14px"></div>' + gems.map(function (d) { return dealCard(d, true); }).join("");
-      } else body = snipesList();
+      } else body = watchList();
       view.innerHTML = head + body + footer();
       view.querySelectorAll("[data-dsub]").forEach(function (b) { b.onclick = function () { location.hash = "#/deals/" + b.dataset.dsub; }; });
       var al = document.getElementById("alerts"); if (al) al.onclick = alertSheet;
-      if (sub === "snipes") bindSnipes();
+      if (sub === "auction-watch") bindWatches();
       if (VOICE) VOICE.fillDeals(view, sub);
     });
   }
@@ -375,44 +379,44 @@
   }
   function cd(s) { var h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return (h ? h + ":" : "") + (m < 10 ? "0" : "") + m + ":" + (x < 10 ? "0" : "") + x; }
   var ST_LABEL = { Scheduled: "Reminder set", Ended: "Auction ended" };
-  /* CardHound never bids, so there is no "placed" or "won". Older saved demo snipes are mapped to the honest states. */
-  function normSnipe(s) { if (s.status === "Placed") { s.status = "Scheduled"; s.opened = true; } else if (s.status !== "Scheduled") s.status = "Ended"; return s; }
+  /* CardHound never bids, so there is no "placed" or "won". Older saved demo reminders are mapped to the honest states. */
+  function normWatch(s) { if (s.status === "Placed") { s.status = "Scheduled"; s.opened = true; } else if (s.status !== "Scheduled") s.status = "Ended"; return s; }
   function remindText(s) { return "Reminder (demo): " + s.card + " ends soon. Your max: " + money(s.max, true) + ". Open it on eBay and bid yourself. CardHound never bids."; }
-  function snipesList() {
-    var head = gate("sniper");
-    if (!state.snipes.length) return head + '<div class="card" style="text-align:center;padding:28px 18px;margin-top:12px"><div style="width:60px;height:60px;margin:0 auto 12px;border-radius:50%;display:grid;place-items:center;color:var(--gold2);border:1px solid var(--gold-line)">' + I("target") + '</div><b>No auctions tracked yet</b><p class="muted small" style="margin:6px 0 14px">Tap <b>Snipe</b> on any auction in Deals, Watchlist, Gem Hunt or a report.</p><a class="btn btn-gold btn-sm" href="#/deals">Browse auctions</a></div>' + disclaimer();
-    return head + '<div style="height:12px"></div>' + state.snipes.map(function (s) {
-      var st = normSnipe(s).status, live = st === "Scheduled", left = Math.max(0, Math.round((s.endsAt - Date.now()) / 1000));
+  function watchList() {
+    var head = gate("auction_watch");
+    if (!state.watches.length) return head + '<div class="card" style="text-align:center;padding:28px 18px;margin-top:12px"><div style="width:60px;height:60px;margin:0 auto 12px;border-radius:50%;display:grid;place-items:center;color:var(--gold2);border:1px solid var(--gold-line)">' + I("target") + '</div><b>No auctions tracked yet</b><p class="muted small" style="margin:6px 0 14px">Tap <b>Watch</b> on any auction in Deals, Watchlist, Gem Hunt or a report.</p><a class="btn btn-gold btn-sm" href="#/deals">Browse auctions</a></div>' + disclaimer();
+    return head + '<div style="height:12px"></div>' + state.watches.map(function (s) {
+      var st = normWatch(s).status, live = st === "Scheduled", left = Math.max(0, Math.round((s.endsAt - Date.now()) / 1000));
       return '<div class="deal"><div class="top"><b>' + esc(s.card) + '</b><span class="chip ' + (live ? "gold" : "") + '" style="height:22px;font-size:10.5px">' + ST_LABEL[st] + (live && s.opened ? " · eBay opened" : "") + ' · demo</span></div>' +
         '<div class="vs"><div><div class="small dim">Your max</div><div class="price num">' + money(s.max, true) + '</div></div><div style="text-align:right"><div class="small dim">' + (live ? "Auction ends in (demo)" : "Result") + '</div><div class="countdown num" data-cd="' + s.id + '">' + (live ? cd(left) : "Check eBay") + '</div></div></div>' +
         (live ? "" : '<p class="small muted" style="margin:6px 0 0">CardHound never bids, so only eBay knows if you won.</p>') +
         '<div class="acts acts-wrap">' + (live ? '<button class="btn btn-gold btn-xs" data-ebay="' + s.id + '">' + I("ext") + 'Open on eBay</button><button class="btn btn-ghost btn-xs" data-edit="' + s.id + '">Edit max</button><button class="btn btn-ghost btn-xs" data-cancel="' + s.id + '">Cancel reminder</button><button class="btn btn-ghost btn-xs" data-sim="' + s.id + '">Preview reminder</button>' : '<button class="btn btn-ghost btn-xs" data-remove="' + s.id + '">Remove</button>') + '</div></div>';
     }).join("") + disclaimer();
   }
-  function findSnipe(id) { return state.snipes.filter(function (x) { return x.id === id; })[0]; }
+  function findWatch(id) { return state.watches.filter(function (x) { return x.id === id; })[0]; }
   function ebayHandoff(s) {
-    if (s) { s.opened = true; saveSnipes(); }
+    if (s) { s.opened = true; saveWatches(); }
     toast("Demo: sample listings have no eBay link. In the app this opens the listing on eBay, where you enter your own max.");
   }
-  function bindSnipes() {
+  function bindWatches() {
     state.timers.push(setInterval(function () {
-      state.snipes.forEach(function (s) {
-        if (normSnipe(s).status !== "Scheduled") return;
+      state.watches.forEach(function (s) {
+        if (normWatch(s).status !== "Scheduled") return;
         var left = Math.max(0, Math.round((s.endsAt - Date.now()) / 1000)), el = view.querySelector('[data-cd="' + s.id + '"]');
         if (el) el.textContent = cd(left);
-        if (left <= 120 && !s.reminded) { s.reminded = true; saveSnipes(); toast(remindText(s)); }
+        if (left <= 120 && !s.reminded) { s.reminded = true; saveWatches(); toast(remindText(s)); }
         if (left === 0) {
-          s.status = "Ended"; saveSnipes();
+          s.status = "Ended"; saveWatches();
           toast("Demo: auction ended. CardHound never bids, so check eBay for the result.");
-          dealsScreen({ sub: "snipes" });
+          dealsScreen({ sub: "auction-watch" });
         }
       });
     }, 1000));
-    view.querySelectorAll("[data-ebay]").forEach(function (b) { b.onclick = function () { ebayHandoff(findSnipe(b.dataset.ebay)); dealsScreen({ sub: "snipes" }); }; });
-    view.querySelectorAll("[data-cancel]").forEach(function (b) { b.onclick = function () { state.snipes = state.snipes.filter(function (s) { return s.id !== b.dataset.cancel; }); saveSnipes(); toast("Reminder cancelled (demo)."); dealsScreen({ sub: "snipes" }); }; });
-    view.querySelectorAll("[data-remove]").forEach(function (b) { b.onclick = function () { state.snipes = state.snipes.filter(function (s) { return s.id !== b.dataset.remove; }); saveSnipes(); dealsScreen({ sub: "snipes" }); }; });
-    view.querySelectorAll("[data-sim]").forEach(function (b) { b.onclick = function () { toast(remindText(findSnipe(b.dataset.sim))); }; });
-    view.querySelectorAll("[data-edit]").forEach(function (b) { b.onclick = function () { var s = findSnipe(b.dataset.edit); snipeSheet(s.dealId, s); }; });
+    view.querySelectorAll("[data-ebay]").forEach(function (b) { b.onclick = function () { ebayHandoff(findWatch(b.dataset.ebay)); dealsScreen({ sub: "auction-watch" }); }; });
+    view.querySelectorAll("[data-cancel]").forEach(function (b) { b.onclick = function () { state.watches = state.watches.filter(function (s) { return s.id !== b.dataset.cancel; }); saveWatches(); toast("Reminder cancelled (demo)."); dealsScreen({ sub: "auction-watch" }); }; });
+    view.querySelectorAll("[data-remove]").forEach(function (b) { b.onclick = function () { state.watches = state.watches.filter(function (s) { return s.id !== b.dataset.remove; }); saveWatches(); dealsScreen({ sub: "auction-watch" }); }; });
+    view.querySelectorAll("[data-sim]").forEach(function (b) { b.onclick = function () { toast(remindText(findWatch(b.dataset.sim))); }; });
+    view.querySelectorAll("[data-edit]").forEach(function (b) { b.onclick = function () { var s = findWatch(b.dataset.edit); watchSheet(s.dealId, s); }; });
   }
 
   /* SHEETS */
@@ -426,13 +430,19 @@
     if (onMount) onMount(sh);
   }
   function closeSheet() { var r = document.getElementById("sheet-root"); if (r) r.innerHTML = ""; }
-  function snipeSheet(id, existing) {
+  function watchSheet(id, existing) {
     var d = (state._deals || []).filter(function (x) { return x.id === id; })[0]; if (!d) return;
+    if (window.CHGrowth && window.CHGrowth.on("ebay_place_max")) {   /* FEATURE_EBAY_PLACE_MAX: type your max (no suggestion), confirm, eBay opens */
+      window.CHGrowth.placeMax({ U: { openSheet: openSheet, closeSheet: closeSheet, toast: toast }, I: I, card: d.card, grade: d.grade, currentBid: d.price, max: existing ? existing.max : "", isSearch: true,
+        url: "https://www.ebay.com/sch/i.html?_nkw=" + encodeURIComponent(d.card + " " + (d.grade || "")) + "&LH_Auction=1&_sop=1",
+        onSave: function (v) { var s = existing; if (s) s.max = v; else { s = { id: "sn" + Date.now(), dealId: d.id, card: d.card, max: v, price: d.price, status: "Scheduled", endsAt: Date.now() + Math.min(d.endsMin, 45) * 60000 }; state.watches.unshift(s); } saveWatches(); } });
+      return;
+    }
     var margin = 0.15, F = { pct: 0.1325, fixed: 0.40, ship: 5 };
     function step1(keep) {
       var net = d.comp * (1 - F.pct) - F.fixed - F.ship, sug = Math.floor(net / (1 + margin));
       var val = keep != null ? keep : existing ? existing.max : sug;
-      openSheet('<div class="eyebrow">Sniper · demo</div><h2>' + esc(d.card) + '</h2><p class="small muted" style="margin:0">' + esc(d.grade) + ' · current bid ' + money(d.price) + ' · ' + fmtEnds(d.endsMin) + '</p>' +
+      openSheet('<div class="eyebrow">Auction Watch · demo</div><h2>' + esc(d.card) + '</h2><p class="small muted" style="margin:0">' + esc(d.grade) + ' · current bid ' + money(d.price) + ' · ' + fmtEnds(d.endsMin) + '</p>' +
         '<div class="card gold" style="margin-top:14px"><div class="row between"><span class="h3" style="color:var(--gold2)">Suggested fair max</span><span class="chip demo">SAMPLE</span></div><div class="callword num" style="font-size:46px;margin:8px 0 4px">' + money(sug) + '</div>' +
         '<dl class="kv small" style="margin-top:8px"><dt>Comp median (sample)</dt><dd class="num">' + money(d.comp) + '</dd><dt>eBay fees 13.25% + $0.40</dt><dd class="num">\u2212' + money(d.comp * F.pct + F.fixed, true) + '</dd><dt>Shipping to resell</dt><dd class="num">\u2212' + money(F.ship) + '</dd><dt>Target margin</dt><dd class="num">' + Math.round(margin * 100) + '%</dd></dl>' +
         '<div class="seg" id="mg" style="margin-top:12px">' + [0.1, 0.15, 0.2, 0.3].map(function (m) { return '<button data-m="' + m + '" class="' + (m === margin ? "on" : "") + '">' + Math.round(m * 100) + '%</button>'; }).join("") + '</div><p class="small dim" style="margin:6px 0 0;text-align:center">Target margin</p></div>' +
@@ -459,10 +469,10 @@
           var save = function (placed) {
             var s = existing;
             if (s) s.max = v;
-            else { s = { id: "sn" + Date.now(), dealId: d.id, card: d.card, max: v, price: d.price, status: "Scheduled", endsAt: Date.now() + Math.min(d.endsMin, 45) * 60000 }; state.snipes.unshift(s); }
+            else { s = { id: "sn" + Date.now(), dealId: d.id, card: d.card, max: v, price: d.price, status: "Scheduled", endsAt: Date.now() + Math.min(d.endsMin, 45) * 60000 }; state.watches.unshift(s); }
             if (placed) ebayHandoff(s); else toast("Reminder set (demo). CardHound never bids.");
-            saveSnipes(); closeSheet();
-            if (parseHash().route === "deals" && parseHash().sub === "snipes") dealsScreen({ sub: "snipes" }); else location.hash = "#/deals/snipes";
+            saveWatches(); closeSheet();
+            if (parseHash().route === "deals" && parseHash().sub === "auction-watch") dealsScreen({ sub: "auction-watch" }); else location.hash = "#/deals/auction-watch";
           };
           eb.onclick = function () { if (ok.checked) save(true); };
           rm.onclick = function () { if (ok.checked) save(false); };
@@ -576,7 +586,7 @@
     var unl = unlocks.length ? '<div class="h3" style="margin:4px 0 8px">Unlocks</div><div class="row wrap" style="gap:6px;margin-bottom:6px">' + unlocks.map(function (u) { return '<span class="chip">' + esc(u.charAt(0).toUpperCase() + u.slice(1)) + '</span>'; }).join("") + '</div>' : "";
     if (s.status === "na" || s.status === "partner" || s.status === "coming" || s.status === "feed") {
       var badge = { na: "Not available yet", partner: "Pending partnership", coming: "Coming soon", feed: "Coming soon" }[s.status];
-      var extra = id === "companion" ? '<ol class="vsteps"><li><span class="sn">1</span><div><b>Sign in to Card Ladder in your own browser</b><span>As you normally do. CardHound never sees your password or cookies.</span></div></li><li><span class="sn">2</span><div><b>Open any card page</b><span>Companion recognizes which card it is.</span></div></li><li><span class="sn">3</span><div><b>Open the CardHound side panel</b><span>Our call, Gem Hunt hits, Sniper, add to watchlist, add to portfolio. Prices come from CardHound, never from Card Ladder.</span></div></li></ol>' : "";
+      var extra = id === "companion" ? '<ol class="vsteps"><li><span class="sn">1</span><div><b>Sign in to Card Ladder in your own browser</b><span>As you normally do. CardHound never sees your password or cookies.</span></div></li><li><span class="sn">2</span><div><b>Open any card page</b><span>Companion recognizes which card it is.</span></div></li><li><span class="sn">3</span><div><b>Open the CardHound side panel</b><span>Our call, Gem Hunt hits, Auction Watch, add to watchlist, add to portfolio. Prices come from CardHound, never from Card Ladder.</span></div></li></ol>' : "";
       openSheet(top + '<h2>' + esc(s.name) + '</h2><span class="chip gold" style="margin:4px 0 10px">' + badge + '</span><p class="muted small" style="margin:10px 0 0">' + esc(s.blurb) + '</p>' + extra +
         '<div class="cta-stack"><button class="btn btn-ghost" disabled>' + I("clock") + badge + '</button><button class="btn btn-ghost" data-connect="import">' + I("upload") + 'Import my collection instead</button></div>' + safe);
       return;
@@ -673,7 +683,8 @@
 
   /* Hooks for the voice / prompt assistant (js/voice.js). Add-only: other screens keep working without it. */
   window.CH_APP = { state: state, LS: LS, D: D, I: I, esc: esc, money: money, pct: pct, toast: toast, footer: footer, openSheet: openSheet, closeSheet: closeSheet, parseHash: parseHash, go: go, view: view, gate: gate,
-    addSnipe: function (s) { state.snipes.unshift(s); saveSnipes(); },
+    addWatch: function (s) { state.watches.unshift(s); saveWatches(); },
+    addSnipe: function (s) { state.watches.unshift(s); saveWatches(); },   /* legacy alias (pre-rename callers) */
     setScope: function (list, v, val) { if (state.scopes[list]) state.scopes[list] = { view: v || "overall", value: val || null }; },
     setMoversDir: function (d) { state.moversDir = d === "down" ? "down" : "up"; },
     lastCard: function () { return LS.get("lastCard", null); }, setLastCard: function (c) { LS.set("lastCard", c); },
@@ -690,9 +701,9 @@
 
   function bindGlobal(root) {
     root.addEventListener("click", function (e) {
-      var b = e.target.closest("[data-connect],[data-snipe],[data-offer],[data-alert],[data-toast]"); if (!b || !root.contains(b)) return;
+      var b = e.target.closest("[data-connect],[data-aw],[data-offer],[data-alert],[data-toast]"); if (!b || !root.contains(b)) return;
       if (b.dataset.connect) { e.preventDefault(); connectSheet(b.dataset.connect); }
-      else if (b.dataset.snipe) snipeSheet(b.dataset.snipe);
+      else if (b.dataset.aw) watchSheet(b.dataset.aw);
       else if (b.dataset.offer) offerSheet(b.dataset.offer);
       else if (b.dataset.alert) alertSheet();
       else if (b.dataset.toast) toast(b.dataset.toast);

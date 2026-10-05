@@ -9,6 +9,8 @@ window.CH_ICON = (function () {
     camera: '<path d="M4 8.5h3l1.8-2.5h6.4L17 8.5h3v10H4z"/><circle cx="12" cy="13.2" r="3.4"/>',
     spark: '<path d="M12 3.5l1.7 5.1 5.1 1.7-5.1 1.7L12 17.1l-1.7-5.1-5.1-1.7 5.1-1.7z"/><path d="M18.5 15.5l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z"/>',
     check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+    gift: '<rect x="4" y="9" width="16" height="11" rx="1.6"/><path d="M3.5 9h17v3.5h-17zM12 9v11"/><path d="M12 9c-1.5-3.5-5.5-4-5.5-1.5S10 9 12 9zM12 9c1.5-3.5 5.5-4 5.5-1.5S14 9 12 9z"/>',
+    share: '<path d="M12 15V4M8 7.5L12 3.5l4 4"/><path d="M6.5 11H5v9h14v-9h-1.5"/>',
     plug: '<path d="M9 3.5V7M15 3.5V7M6.5 7h11v3.5a5.5 5.5 0 0 1-11 0z"/><path d="M12 16v4.5"/>',
     shield: '<path d="M12 3.5l7.5 2.8v5.6c0 4.3-3.2 7.9-7.5 8.6-4.3-.7-7.5-4.3-7.5-8.6V6.3z"/><path d="M9 12l2.2 2.2L15.2 10"/>',
     sliders: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',

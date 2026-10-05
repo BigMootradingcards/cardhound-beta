@@ -218,7 +218,7 @@
     else if (/\b(add|put|save|throw)\b.*\bwatch ?list\b|\bwatch (?:this|it)\b|\bstart watching\b/.test(t)) bump("watchlist_add", .93);
     if (/\b(portfolio|my collection|my cards|my holdings|my stuff)\b/.test(t)) bump("portfolio_summary", /\b(up|down|worth|value|doing|summary|gain|loss|how much|total|performance|perform)\b/.test(t) ? .93 : .7);
     if (/\b(i (?:just )?(?:bought|picked up|got|paid|grabbed|won)|log (?:a |this |my |the )?(?:buy|purchase|card)|add (?:a |this |my )?(?:buy|purchase) |(?:add|put) (?:it |this )?(?:to|in) (?:my )?ledger|record (?:a |my )?(?:buy|purchase))\b/.test(t)) bump("ledger_add", .92);
-    if (/\b(snipe|sniper|last[- ]second bid|bid on (?:this|it)|set (?:a |my )?max bid|max bid)\b/.test(t)) bump("sniper_set", .95);
+    if (/\b(auction watch|watch (?:this|the) auction|snipe|sniper|last[- ]second bid|bid on (?:this|it)|set (?:a |my )?max bid|max bid)\b/.test(t)) bump("auction_watch_set", .95);   /* "snipe" kept as a spoken alias (pre-rename) */
     if (/\b(make (?:an |a )?offer|best offer|send (?:an )?offer|offer (?:them|him|her|the seller)?\s*\$?\d|lowball)\b/.test(t)) bump("best_offer", .94);
     if (/\b(buy (?:this|it|that)(?: now)?|purchase (?:this|it)|grab (?:this|it)|check ?out (?:this|it))\b/.test(t) && !/\b(should i buy|find|search|hunt)\b/.test(t)) bump("buy", .93);
     if (/\b(save (?:this |the |my |that )?(?:hunt|search)|gem hunt|save (?:it )?as (?:a )?(?:gem|hunt)|keep (?:hunting|looking) for|alert me when (?:one|a|it)|watch for (?:a|one))\b/.test(t)) bump("gem_hunt_save", .92);
@@ -232,7 +232,8 @@
     if (sc.lists && sc.card_hunt && !pf.player) sc.card_hunt = .4;
     if (sc.lists && sc.card_lookup && !pf.player) sc.card_lookup = Math.min(sc.card_lookup, .4);
     if (sc.should_grade) { sc.card_lookup = Math.min(sc.card_lookup || 0, .5); }
-    if (sc.sniper_set || sc.best_offer || sc.buy) { sc.card_hunt = Math.min(sc.card_hunt || 0, .5); sc.card_lookup = Math.min(sc.card_lookup || 0, .45); }
+    if (sc.auction_watch_set && /\bauction\b/.test(t)) sc.watchlist_add = Math.min(sc.watchlist_add || 0, .5);   /* "watch this auction" = Auction Watch, not the watchlist */
+    if (sc.auction_watch_set || sc.best_offer || sc.buy) { sc.card_hunt = Math.min(sc.card_hunt || 0, .5); sc.card_lookup = Math.min(sc.card_lookup || 0, .45); }
     if (sc.portfolio_summary && sc.lists && !/\b(movers?|trending|picks?|searched|highs?)\b/.test(t)) sc.lists = .3;
     if (sc.ledger_add) { sc.card_lookup = Math.min(sc.card_lookup || 0, .45); sc.card_hunt = Math.min(sc.card_hunt || 0, .45); }
     if (sc.watchlist_add || sc.watchlist_remove) { sc.card_hunt = Math.min(sc.card_hunt || 0, .4); sc.card_lookup = Math.min(sc.card_lookup || 0, .45); sc.gem_hunt_save = Math.min(sc.gem_hunt_save || 0, .4); }
@@ -241,11 +242,11 @@
     // fields per intent
     if (top[0] === "lists") { if (pf.category) F.category = pf.category; if (pf.set) F.set = pf.set; if (/\btoday\b/.test(t)) F.period = "today"; }
     if (top[0] === "portfolio_summary") F.period = /\btoday\b/.test(t) ? "today" : /\b(this|past|last) week\b|\bweekly\b|\b7 days\b/.test(t) ? "week" : /\b(this|past|last) month\b|\b30 days\b/.test(t) ? "month" : /\b(this|past|last) year\b|\bytd\b|\b12 months\b/.test(t) ? "year" : "all";
-    if (["sniper_set", "best_offer", "buy", "ledger_add"].indexOf(top[0]) > -1 && pf.budget_max) F[top[0] === "ledger_add" ? "price" : top[0] === "best_offer" ? "offer" : "max"] = pf.budget_max;
+    if (["auction_watch_set", "best_offer", "buy", "ledger_add"].indexOf(top[0]) > -1 && pf.budget_max) F[top[0] === "ledger_add" ? "price" : top[0] === "best_offer" ? "offer" : "max"] = pf.budget_max;
     if (top[0] === "ledger_add" && !F.price) { var pm = t.match(/\b(?:for|paid)\s*\$?\s*(\d+(?:\.\d+)?)/) || t.match(/\$\s*(\d+(?:\.\d+)?)/); if (pm) F.price = parseFloat(pm[1]); }
     if (top[0] === "best_offer" && !F.offer) { var om = t.match(/\$\s*(\d+(?:\.\d+)?)|\boffer\s*(\d+)/); if (om) F.offer = parseFloat(om[1] || om[2]); }
-    if (["card_lookup", "card_hunt", "ledger_add", "watchlist_add", "watchlist_remove", "sniper_set", "best_offer", "buy", "gem_hunt_save", "should_grade"].indexOf(top[0]) > -1) {
-      F.card = pf; F.target = cardish ? "named" : thisRef || ["should_grade", "watchlist_add", "watchlist_remove", "sniper_set", "best_offer", "buy"].indexOf(top[0]) > -1 ? "this" : "none";
+    if (["card_lookup", "card_hunt", "ledger_add", "watchlist_add", "watchlist_remove", "auction_watch_set", "best_offer", "buy", "gem_hunt_save", "should_grade"].indexOf(top[0]) > -1) {
+      F.card = pf; F.target = cardish ? "named" : thisRef || ["should_grade", "watchlist_add", "watchlist_remove", "auction_watch_set", "best_offer", "buy"].indexOf(top[0]) > -1 ? "this" : "none";
       if (F.target === "this") F.needsCard = !ctx.currentCard;
     }
     if (top[0] === "card_hunt") F.ambiguities = p.ambiguities;
