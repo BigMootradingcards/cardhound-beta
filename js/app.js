@@ -14,13 +14,14 @@
     photo: null, fromFlow: false, pickedCandidate: 0,
     conn: LS.get("conn", {}),
     keys: LS.get("keys", {}),
-    watches: LS.get("auctionWatch", null) || LS.get("snipes", []),   /* Auction Watch reminders ("snipes" = the pre-rename storage key, read once) */
+    ai: CH_AI.normalize(LS.get("ai", {})),
+    snipes: LS.get("snipes", []),
     alerts: LS.get("alerts", { threshold: 20, on: true }),
     scopes: { movers: { view: "overall", value: null }, picks: { view: "overall", value: null }, searched: { view: "overall", value: null }, highs: { view: "overall", value: null } },
     moversDir: "up", meta: null, timers: []
   };
   var saveConn = function () { LS.set("conn", state.conn); LS.set("keys", state.keys); state.connDirty = true; };
-  var saveWatches = function () { LS.set("auctionWatch", state.watches); };
+  var saveSnipes = function () { LS.set("snipes", state.snipes); };
 
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
   function money(v, dec) {
@@ -47,11 +48,152 @@
   function gate(featureId) {
     var f = CH_FEATURES[featureId]; if (!f) return "";
     var on = f.sources.filter(isConnected);
-    if (on.length) return '<div class="gate">' + I("check") + '<div class="grow"><b>' + esc(srcById(on[0]).name) + ' connected (demo)</b>. ' + esc(f.label.charAt(0).toUpperCase() + f.label.slice(1)) + ' would load here. This shared demo still shows sample data.</div></div>';
+    var ladder = f.sources[0] === "cardladder" ? " Sold comps only. Not for finding cards to buy." : "";
+    if (on.length) return '<div class="gate">' + I("check") + '<div class="grow"><b>' + esc(srcById(on[0]).name) + ' connected (demo)</b>. ' + esc(f.label.charAt(0).toUpperCase() + f.label.slice(1)) + ' would load here.' + ladder + ' This shared demo still shows sample data.</div></div>';
     if (f.sources[0] === "feed") return '<div class="gate">' + I("spark") + '<div class="grow"><b>' + esc(f.label) + '</b> will come from CardHound\'s own licensed data (coming soon). Showing sample data.</div></div>';
     var names = f.sources.map(function (s) { return srcById(s).name; });
     var nm = names.length > 1 ? names.slice(0, -1).join(", ") + " or " + names[names.length - 1] : names[0];
-    return '<button class="gate" data-connect="' + f.sources[0] + '">' + I("lock") + '<div class="grow"><b>Connect ' + esc(nm) + '</b> to unlock ' + esc(f.label) + '. Showing sample data.</div>' + I("right") + '</button>';
+    return '<button class="gate" data-connect="' + f.sources[0] + '">' + I("lock") + '<div class="grow"><b>Connect ' + esc(nm) + '</b> to unlock ' + esc(f.label) + '.' + ladder + ' Showing sample data.</div>' + I("right") + '</button>';
+  }
+  function jobSplitHTML() {
+    var j = CH_AI.job;
+    return '<div class="job-split" aria-label="AI and Card Ladder do different jobs"><div class="job-row"><b>AI</b><span>' + esc(j.aiShort) + '</span></div><div class="job-row"><b>Card Ladder</b><span>' + esc(j.ladderShort) + '</span></div></div>';
+  }
+  /* End of a flow only. Do not place this above the first action. */
+  function flowEnd(opts) {
+    opts = opts || {};
+    var j = CH_AI.job;
+    var lines = [];
+    if (opts.sample !== false) lines.push("<b>SAMPLE.</b> Not live prices.");
+    lines.push("Not financial or investment advice.");
+    lines.push("<b>AI.</b> " + esc(j.aiShort) + " <b>Card Ladder.</b> " + esc(j.ladderShort));
+    if (opts.leave) lines.push("Your key stays on this phone until you send a hunt. It goes only to the AI you picked, after you agree. If no live reply comes back, this stays SAMPLE.");
+    if (opts.huntLine) lines.push('<span id="flow-hunt-line">' + esc(opts.huntLine) + '</span>');
+    if (opts.photo) lines.push("A photo stays on this phone until you agree to send it.");
+    return '<aside class="flow-end" aria-label="Notes">' + lines.map(function (l) { return "<p>" + l + "</p>"; }).join("") + "</aside>";
+  }
+  function microNote() { return ""; }
+  function openGate(opts) {
+    var root = document.getElementById("legal-root");
+    if (!root) { if (opts.onPrimary) opts.onPrimary(); return; }
+    root.innerHTML = '<div class="legal-bg"><div class="legal-card" role="dialog" aria-modal="true" aria-labelledby="gate-title"><h2 id="gate-title">' + esc(opts.title) + '</h2>' +
+      opts.lines.map(function (l) { return "<p>" + esc(l) + "</p>"; }).join("") +
+      '<div class="cta-stack"><button class="btn btn-gold" id="gate-go" type="button">' + esc(opts.primary) + '</button>' +
+      (opts.secondary ? '<button class="btn btn-ghost" id="gate-no" type="button">' + esc(opts.secondary) + '</button>' : "") +
+      "</div></div></div>";
+    document.getElementById("gate-go").onclick = function () { root.innerHTML = ""; if (opts.onPrimary) opts.onPrimary(); };
+    var no = document.getElementById("gate-no");
+    if (no) no.onclick = function () { root.innerHTML = ""; if (opts.onSecondary) opts.onSecondary(); };
+  }
+  function showLegal() {
+    /* friends-beta: Maurice end-only disclaimers — no first-open modal */
+    LS.set("legalOk", true);
+  }
+  function photoGate(then) {
+    if (LS.get("photoOk")) { if (then) then(); return; }
+    openGate({
+      title: "This photo",
+      lines: [
+        "A live photo can leave this phone so your AI can name the card.",
+        "You will be asked again before it is sent."
+      ],
+      primary: "Continue",
+      secondary: "Not now",
+      onPrimary: function () { LS.set("photoOk", true); if (then) then(); }
+    });
+  }
+  function leaveGate(onYes, onNo) {
+    if (LS.get("leaveOk")) { onYes(); return; }
+    openGate({
+      title: "This leaves your phone",
+      lines: [
+        "This sends your hunt to the AI you connected.",
+        "Your words, and the photo if you added one, leave this phone.",
+        "Sold prices stay SAMPLE. A reply is live only if your AI answers."
+      ],
+      primary: "Continue",
+      secondary: "Not now",
+      onPrimary: function () { LS.set("leaveOk", true); onYes(); },
+      onSecondary: function () { if (onNo) onNo(); }
+    });
+  }
+  function canLive() {
+    return CH_AI.connected(state.ai) && !!CH_AI.acceptKey(aiSecret());
+  }
+  function paintLive() {
+    var slot = document.getElementById("live-slot");
+    if (slot) slot.innerHTML = liveHuntBody();
+    var line = document.getElementById("flow-hunt-line");
+    if (line && state.liveHunt) line.textContent = CH_AI.huntLine(state.liveHunt);
+  }
+  function liveHuntBody() {
+    var h = state.liveHunt;
+    if (!h) return "";
+    if (h.status === "live" && h.text) {
+      var who = CH_AI.byId(h.provider);
+      return '<section class="card live-reply" aria-label="Live AI reply"><div class="row between"><b>From ' + esc(who ? who.name : "your AI") + '</b></div><p style="margin:8px 0 0">' + esc(h.text) + '</p><p class="micro-note">From your AI. Not a sold price. Not advice. The card list below stays SAMPLE.</p></section>';
+    }
+    if (h.status === "pending") return '<p class="small muted">Asking your AI. Still SAMPLE until a reply returns.</p>';
+    return '<p class="micro-note">' + esc(CH_AI.sampleLine(h)) + '</p>';
+  }
+  function shrinkPhoto(url) {
+    return new Promise(function (resolve) {
+      if (!url) { resolve(null); return; }
+      var img = new Image();
+      img.onload = function () {
+        try {
+          var max = 1024, w = img.naturalWidth || img.width || 1, h = img.naturalHeight || img.height || 1;
+          var scale = Math.min(1, max / Math.max(w, h));
+          var c = document.createElement("canvas");
+          c.width = Math.max(1, Math.round(w * scale));
+          c.height = Math.max(1, Math.round(h * scale));
+          c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+          var dataUrl = c.toDataURL("image/jpeg", 0.72);
+          var cut = dataUrl.indexOf(",");
+          resolve(cut > -1 ? { mime: "image/jpeg", data: dataUrl.slice(cut + 1) } : null);
+        } catch (e) { resolve(null); }
+      };
+      img.onerror = function () { resolve(null); };
+      img.src = url;
+    });
+  }
+  function startLive(text, photoUrl) {
+    var provider = CH_AI.normalize(state.ai).provider;
+    function sample(reason) { state.liveHunt = { status: "sample", reason: reason, provider: provider }; }
+    if (!canLive()) {
+      sample(CH_AI.connected(state.ai) ? "no-key" : "skipped");
+      return Promise.resolve();
+    }
+    return new Promise(function (resolve) {
+      leaveGate(function () {
+        state.liveHunt = { status: "pending", provider: provider };
+        resolve();
+        var ready = photoUrl ? shrinkPhoto(photoUrl) : Promise.resolve(null);
+        ready.then(function (image) {
+          return CH_AI.ask({ provider: provider, key: aiSecret(), text: text, image: image });
+        }).then(function (res) {
+          if (res && res.live && res.text) state.liveHunt = { status: "live", text: res.text, provider: res.provider || provider };
+          else state.liveHunt = { status: "sample", reason: (res && res.reason) || "network", provider: provider };
+          paintLive();
+        }).catch(function () {
+          state.liveHunt = { status: "sample", reason: "network", provider: provider };
+          paintLive();
+        });
+      }, function () {
+        sample("held");
+        resolve();
+      });
+    });
+  }
+  function guardPhoto(input) {
+    if (!input) return;
+    view.querySelectorAll('label[for="' + input.id + '"]').forEach(function (label) {
+      label.addEventListener("click", function (e) {
+        if (LS.get("photoOk")) return;
+        e.preventDefault();
+        photoGate(function () { input.click(); });
+      });
+    });
   }
 
   /* Sample card art: a generic studio render (img/, source in ../art-source). No real player, brand or seller photo. */
@@ -61,12 +203,9 @@
   (new Image()).src = "img/sample-card-studio.jpg";
 
   var TABS = [
-    { id: "scan", label: "Scan", icon: "scan", match: ["scan", "analyze", "match"] },
-    { id: "report", label: "Report", icon: "report", match: ["report"] },
-    { id: "markets", label: "Markets", icon: "markets", match: ["markets"] },
-    { id: "deals", label: "Deals", icon: "deals", match: ["deals"] },
-    { id: "ledger", label: "Ledger", icon: "ledger", match: ["ledger"] },
-    { id: "more", label: "More", icon: "more", match: ["more", "connections", "tool"] }
+    { id: "scan", label: "Check", icon: "scan", match: ["scan", "analyze", "match", "confirm", "report", "unpriced"] },
+    { id: "lists", label: "Lists", icon: "markets", match: ["lists", "markets"] },
+    { id: "more", label: "More", icon: "more", match: ["more", "connections", "settings", "tool", "ask", "ledger", "deals", "daily"] }
   ];
   function renderTabs(route) {
     document.getElementById("tabbar").innerHTML = TABS.map(function (t) {
@@ -75,17 +214,16 @@
     }).join("");
   }
   document.getElementById("btn-settings").innerHTML = I("sliders");
-  document.getElementById("btn-settings").addEventListener("click", function () { location.hash = "#/connections"; });
+  document.getElementById("btn-settings").addEventListener("click", function () { location.hash = "#/settings"; });
 
   function parseHash() {
     var h = (location.hash || "#/scan").replace(/^#\/?/, "");
     var parts = h.split("/");
-    return { route: parts[0] || "scan", sub: parts[1] || null };
+    var route = parts[0] || "scan";
+    if (route === "confirm") route = "match";
+    return { route: route, sub: parts[1] || null };
   }
-  /* Auction Watch (renamed from "Sniper", Oct 4, 2026): the old paths still work and land on the new one */
-  var LEGACY = { "#/sniper": "#/deals/auction-watch", "#/snipes": "#/deals/auction-watch", "#/deals/snipes": "#/deals/auction-watch", "#/deals/sniper": "#/deals/auction-watch", "#/auction-watch": "#/deals/auction-watch" };
   function go() {
-    var lg = LEGACY[(location.hash || "").replace(/\/$/, "")]; if (lg) { location.replace(lg); return; }
     clearTimers(); closeSheet(); state.connDirty = false; if (BOOM) BOOM.close(true);
     var p = parseHash();
     var fn = ROUTES[p.route] || ROUTES.scan;
@@ -96,28 +234,136 @@
     window.scrollTo(0, 0);
   }
 
-  /* SCAN */
+  /* CHECK — Home is 50/50: photo and AI hunt, equal, side by side. */
+  function lastCheckedHTML() {
+    var last = LS.get("lastCard", null);
+    if (!last || !last.title) return "";
+    return '<a class="tool" href="#/report" style="margin-top:12px"><span class="tic">' + I("report") + '</span><span class="tt"><b>Last checked</b><span>' + esc(last.title) + '</span></span>' + I("right") + '</a>';
+  }
+  function saveAi(next) { state.ai = CH_AI.normalize(next); LS.set("ai", state.ai); }
+  function aiSecret() { var v = LS.get("ai_secret", ""); return typeof v === "string" ? v : ""; }
+  function setAiSecret(key) {
+    if (!key) { try { localStorage.removeItem("ch_ai_secret"); } catch (e) {} return; }
+    LS.set("ai_secret", key);
+  }
+  function aiKeyField(id) {
+    return '<div class="field"><label for="' + id + '">Your key</label><input class="input" id="' + id + '" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Paste your key"></div>';
+  }
+  function commitAi(providerId, keyRaw, keepExisting) {
+    var typed = CH_AI.acceptKey(keyRaw);
+    var key = typed || (keepExisting ? aiSecret() : "");
+    if (!CH_AI.acceptKey(key)) { toast("Paste your key."); return false; }
+    saveAi({ provider: providerId, skipped: false });
+    if (typed) setAiSecret(typed);
+    return true;
+  }
+  function disconnectAi() {
+    saveAi({ provider: null, skipped: true });
+    setAiSecret("");
+  }
+  var aiDraft = "chatgpt";
+  function aiPickHTML(selected) {
+    return CH_AI.providers.map(function (p) {
+      var on = p.id === selected;
+      return '<button type="button" class="ai-pick' + (on ? " on" : "") + '" data-ai="' + p.id + '" role="radio" aria-checked="' + (on ? "true" : "false") + '"><span class="srcmono">' + esc(p.mono) + '</span><span class="tt"><b>' + esc(p.name) + '</b><span>' + esc(p.blurb) + '</span></span></button>';
+    }).join("");
+  }
+  function bindAiPicks(root, onPick) {
+    var boxes = root.querySelectorAll("[data-ai]");
+    boxes.forEach(function (b) {
+      b.onclick = function () {
+        boxes.forEach(function (o) { var on = o === b; o.classList.toggle("on", on); o.setAttribute("aria-checked", on ? "true" : "false"); });
+        onPick(b.getAttribute("data-ai"));
+      };
+    });
+  }
+  function aiSheet() {
+    var cur = CH_AI.normalize(state.ai);
+    var pick = cur.provider || "chatgpt";
+    var chosen = CH_AI.byId(pick);
+    var held = aiSecret();
+    openSheet('<div class="eyebrow">Your AI</div><h2>' + (cur.provider ? "Your AI" : "Connect your AI") + '</h2>' +
+      '<p class="muted small" style="margin:0">' + esc(CH_AI.job.ai) + ' Card Ladder supplies the sold comps. It does not find cards to buy.</p>' +
+      jobSplitHTML() +
+      '<div class="ai-picks" role="radiogroup" aria-label="Preferred AI">' + aiPickHTML(pick) + '</div>' +
+      (held ? '<p class="small muted" style="margin:8px 0 0">Key on this phone · …' + esc(CH_AI.maskKey(held)) + '</p>' : "") +
+      aiKeyField("ai-key-sheet") +
+      '<div class="cta-stack"><button class="btn btn-gold" id="ai-go" type="button">' + (cur.provider ? "Save" : "Connect " + esc(chosen.name)) + '</button>' +
+      (cur.provider || held ? '<button class="btn btn-ghost" id="ai-off" type="button">Disconnect</button>' : "") + '</div>' +
+      flowEnd({ leave: true }), function (sh) {
+        bindAiPicks(sh, function (id) {
+          pick = id;
+          var btn = document.getElementById("ai-go");
+          var name = CH_AI.byId(id);
+          if (btn && name && !cur.provider) btn.textContent = "Connect " + name.name;
+        });
+        document.getElementById("ai-go").onclick = function () {
+          var field = document.getElementById("ai-key-sheet");
+          if (!commitAi(pick, field ? field.value : "", true)) return;
+          closeSheet();
+          var name = CH_AI.byId(pick);
+          toast((name ? name.name : "AI") + " connected on this phone.");
+          if (parseHash().route === "scan") scanScreen(); else go();
+        };
+        var off = document.getElementById("ai-off");
+        if (off) off.onclick = function () {
+          disconnectAi();
+          closeSheet();
+          toast("Using sample results on this phone.");
+          if (parseHash().route === "scan") scanScreen(); else go();
+        };
+      });
+  }
   function scanScreen() {
-    var cl = isConnected("import");
+    var ai = CH_AI.normalize(state.ai);
+    var settled = CH_AI.settled(ai);
+    var live = CH_AI.connected(ai);
+    var who = live ? CH_AI.byId(ai.provider) : null;
     var frame = state.photo
       ? '<img class="photo" src="' + state.photo + '" alt="Your card photo preview"><div class="corners"><i></i><i></i><i></i><i></i></div>'
-      : '<div class="grid-ov"></div><div class="corners"><i></i><i></i><i></i><i></i></div><div class="scan-empty"><div class="ring">' + I("camera") + '</div><b>Frame the whole card</b>Front side, flat, good light. Slab or raw.</div>';
-    var ctas = state.photo
-      ? '<button class="btn btn-gold" id="go-analyze">' + I("spark") + 'Analyze this card</button><label class="btn btn-ghost" for="file">' + I("camera") + 'Retake or choose another</label>'
-      : '<label class="btn btn-gold" for="file">' + I("camera") + 'Take or upload a photo</label><button class="btn btn-ghost" id="try-sample">' + I("spark") + 'Try a sample card</button>';
-    view.innerHTML =
-      '<div class="eyebrow">AI card research</div>' +
-      '<h1 class="h1">Snap a card.<br><em>Get the call.</em></h1>' +
-      '<p class="lead">CardHound finds the exact version, pulls sold comps, reads the trend, and tells you: BUY, SELL, HOLD or GRADE.</p>' +
-      '<div class="scan-frame">' + frame + '</div>' +
-      '<input class="file-input" id="file" type="file" accept="image/*" capture="environment">' +
-      '<div class="cta-stack">' + ctas + '</div>' +
-      '<div class="note" style="margin-top:12px">' + I("shield") + '<div>Your photo stays on your phone. Nothing is uploaded. This demo can\'t read photos yet, so it shows a <b style="color:var(--gold2)">sample match</b>.</div></div>' +
-      '<div class="sec"><div class="card ' + (cl ? "gold" : "") + ' connect-card"><div class="seal ' + (cl ? "on" : "") + '">' + I(cl ? "check" : "plug") + '</div>' +
-        '<div class="t"><b>' + (cl ? "Collection imported" : "Import my collection") + '</b><span>' + (cl ? "Simulated in this demo. Prices shown stay sample data." : "CSV, screenshot or PSA/BGS/SGC/CGC cert numbers. No passwords.") + '</span></div>' +
-        (cl ? '<span class="chip gold demo">DEMO</span>' : '<button class="btn btn-gold btn-sm" data-connect="import">Import</button>') + '</div></div>' +
-      (VOICE ? VOICE.homeCard() : "") +
-      '<div class="sec"><div class="sec-head"><h3 class="h3">How it works</h3></div><div class="steps4"><div>' + I("scan") + 'Identify</div><div>' + I("list") + 'Comps</div><div>' + I("markets") + 'Trend</div><div>' + I("target") + 'The call</div></div></div>' +
+      : '<div class="grid-ov"></div><div class="corners"><i></i><i></i><i></i><i></i></div><div class="scan-empty"><div class="ring">' + I("camera") + '</div><b>Frame the card</b>Slab or raw.</div>';
+    var photoBtn = state.photo
+      ? '<button class="btn ' + (settled ? "btn-gold" : "btn-ghost") + '" id="go-analyze" type="button">Analyze this card</button><label class="btn btn-ghost" for="file">Retake</label>'
+      : '<label class="btn ' + (settled ? "btn-gold" : "btn-ghost") + '" for="file">Take or upload a photo</label>';
+    var start = "";
+    if (!settled) {
+      var draftName = (CH_AI.byId(aiDraft) || CH_AI.providers[0]).name;
+      start = '<section class="ai-start" aria-label="Connect your AI">' +
+        '<div class="eyebrow">Start here</div><h1 class="h1">Connect your AI</h1>' +
+        '<p class="lead">' + esc(CH_AI.job.ai) + ' Card Ladder is sold comps only, not a buy finder.</p>' +
+        jobSplitHTML() +
+        '<div class="ai-picks" id="ai-picks" role="radiogroup" aria-label="Preferred AI">' + aiPickHTML(aiDraft) + '</div>' +
+        aiKeyField("ai-key") +
+        '<div class="cta-stack"><button class="btn btn-gold" id="ai-connect" type="button">Connect ' + esc(draftName) + '</button>' +
+        '<button class="btn btn-ghost" id="ai-skip" type="button">Skip for now</button></div>' +
+        '<p class="small muted" style="margin:0">You can change this in Settings.</p></section>';
+    } else if (live && who) {
+      start = '<button type="button" class="ai-banner on" id="ai-open"><span><b>' + esc(who.name) + ' · deal call and hunts</b><span>' + (aiSecret() ? "Key on this phone · …" + esc(CH_AI.maskKey(aiSecret())) : "Add your key in Settings.") + '</span></span><span class="chip">Change</span></button>';
+    } else {
+      start = '<button type="button" class="ai-banner" id="ai-open"><span><b>Connect your AI</b><span>Deal call, chart, and open-market buy hunts.</span></span>' + I("right") + '</button>';
+    }
+    view.innerHTML = start +
+      (settled
+        ? '<h1 class="h1">Check a card</h1><p class="lead">Photo can name the card. The hunt searches the open market. Sold comps come from Card Ladder. Your AI calls deal, overpaying, or underpaying and charts the card.</p>'
+        : '<h2 class="h3 home-later">Or check a card with sample data</h2>') +
+      '<div class="home-split' + (settled ? "" : " is-secondary") + '">' +
+        '<section class="home-pane" aria-label="What\'s this card?">' +
+          '<h2>What\'s this card?</h2>' +
+          '<div class="scan-frame">' + frame + '</div>' +
+          '<input class="file-input" id="file" type="file" accept="image/*" capture="environment">' +
+          photoBtn +
+          '<p class="small muted" style="margin:0">Names the card. The deal call comes after you confirm the set.</p>' +
+        '</section>' +
+        '<section class="home-pane" aria-label="Find buys">' +
+          '<h2>Find buys</h2>' +
+          '<textarea class="input" id="hunt-q" placeholder="Year, set, player, budget" aria-label="Describe the buy hunt"></textarea>' +
+          '<button class="btn ' + (settled ? "btn-gold" : "btn-ghost") + '" id="hunt-go" type="button">Hunt</button>' +
+          '<button class="btn btn-ghost hunt-mic" type="button" data-v="mic" data-mic-target="hunt" aria-label="Speak a hunt">' + I("mic") + ' Speak</button>' +
+          '<p class="small muted" style="margin:0">Open market: listings, deals, promos. Daily, or on the schedule you set. Not Card Ladder.</p>' +
+        '</section>' +
+      '</div>' +
+      lastCheckedHTML() +
+      flowEnd({ leave: true, photo: true }) +
       footer();
     var f = document.getElementById("file");
     f.addEventListener("change", function () {
@@ -125,13 +371,54 @@
       if (state.photo) URL.revokeObjectURL(state.photo);
       state.photo = URL.createObjectURL(file); scanScreen();
     });
-    var a = document.getElementById("go-analyze"); if (a) a.onclick = function () { location.hash = "#/analyze"; };
-    var s = document.getElementById("try-sample"); if (s) s.onclick = function () { state.photo = null; location.hash = "#/analyze"; };
+    var a = document.getElementById("go-analyze"); if (a) a.onclick = function () { state.check = null; location.hash = "#/analyze"; };
+    guardPhoto(f);
+    document.getElementById("hunt-go").onclick = function () { submitHunt(document.getElementById("hunt-q").value); };
+    if (!settled) {
+      bindAiPicks(document.getElementById("ai-picks") || view, function (id) {
+        aiDraft = id;
+        var btn = document.getElementById("ai-connect");
+        var name = CH_AI.byId(id);
+        if (btn && name) btn.textContent = "Connect " + name.name;
+      });
+      document.getElementById("ai-connect").onclick = function () {
+        var field = document.getElementById("ai-key");
+        if (!commitAi(aiDraft, field ? field.value : "", false)) return;
+        var name = CH_AI.byId(aiDraft);
+        toast((name ? name.name : "AI") + " connected on this phone.");
+        scanScreen();
+      };
+      document.getElementById("ai-skip").onclick = function () {
+        saveAi({ provider: null, skipped: true });
+        scanScreen();
+      };
+    } else {
+      var open = document.getElementById("ai-open");
+      if (open) open.onclick = aiSheet;
+    }
+  }
+  function submitHunt(q) {
+    q = String(q || "").trim();
+    if (!q) { toast("Say what to hunt."); return; }
+    var parsed = window.CH_VOICE_PARSE && CH_VOICE_PARSE.parseHunt ? CH_VOICE_PARSE.parseHunt(q) : { fields: {} };
+    var fields = parsed.fields || {};
+    var sample = (window.CARDHOUND_SAMPLE && CARDHOUND_SAMPLE.candidates) || [];
+    var hits = CH_SETGUARD.huntCandidates(q, sample, fields);
+    var catalog = CH_SETGUARD.structureAll(sample);
+    state.check = {
+      source: "hunt", query: q, fields: fields, candidates: hits.length ? hits : [],
+      catalog: catalog, read: null, prefill: fields
+    };
+    state.pickedCandidate = 0;
+    state.fromFlow = true;
+    startLive(q, state.photo).then(function () { location.hash = "#/match"; });
   }
 
   /* ANALYZE */
   var STEPS = [["Reading the card", "Edges, text, card number"], ["Matching the exact version", "Set, year, parallel, refractor"], ["Pulling comps", "Sold prices, raw and graded"], ["Checking trends", "30, 90 and 365 days"], ["Building your call", "Fees, grading math, risk"]];
   function analyzeScreen() {
+    state.check = null;
+    function draw() {
     var cl = isConnected("import");
     var steps = STEPS.map(function (s, i) {
       var sub = (i === 1 && cl) ? "Also checking your imported collection (demo)" : s[1];
@@ -142,7 +429,7 @@
     view.innerHTML = '<div class="an-wrap"><div class="an-photo">' + media + '<div class="shade"></div><div class="grid-ov"></div><div class="sweep"></div><div class="corners" style="position:absolute;inset:16px"><i></i><i></i><i></i><i></i></div>' +
       '<div class="ring-wrap"><svg viewBox="0 0 72 72"><defs><linearGradient id="rg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fbecc0"/><stop offset=".5" stop-color="#c9972b"/><stop offset="1" stop-color="#f1d48a"/></linearGradient></defs>' +
       '<circle cx="36" cy="36" r="32" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="4"/><circle id="ring" cx="36" cy="36" r="32" fill="none" stroke="url(#rg)" stroke-width="4" stroke-linecap="round" stroke-dasharray="' + C.toFixed(1) + '" stroke-dashoffset="' + C.toFixed(1) + '"/></svg><span class="pct num" id="pctv">0%</span></div></div>' +
-      '<div><h1 class="an-title">CardHound is analyzing<span class="dots"></span></h1><p class="muted small" style="margin:4px 0 0">' + (state.photo ? "Using your photo for the preview. Results are a sample match." : "Sample card. Results are sample data.") + '</p></div>' +
+      '<div><h1 class="an-title">CardHound is analyzing<span class="dots"></span></h1><p class="muted small" style="margin:4px 0 0">' + (state.liveHunt && state.liveHunt.status === "pending" ? "Asking your AI. Sold prices stay SAMPLE until a reply returns." : "Sample card. Results stay SAMPLE until a live reply returns.") + '</p></div>' +
       '<ol class="an-steps">' + steps + '</ol></div>' + footer();
     var ring = document.getElementById("ring"), pv = document.getElementById("pctv"), lis = view.querySelectorAll(".an-steps li");
     var total = 6000, per = total / STEPS.length, t0 = performance.now();
@@ -154,31 +441,97 @@
       if (p >= 1) { clearInterval(iv); state.timers.push(setTimeout(function () { state.fromFlow = true; location.hash = "#/match"; }, 550)); }
     }, 60);
     state.timers.push(iv);
+    }
+    if (state.photo && canLive()) startLive("Name this card from the photo.", state.photo).then(draw);
+    else {
+      state.liveHunt = { status: "sample", reason: CH_AI.connected(state.ai) ? "no-key" : "skipped", provider: CH_AI.normalize(state.ai).provider };
+      draw();
+    }
   }
 
-  /* MATCH */
-  function matchScreen() {
-    D.identifyCard(state.photo).then(function (res) {
-      var c = res.candidates;
-      var thumb = state.photo ? '<img src="' + state.photo + '" alt="" style="width:60px;height:60px;object-fit:cover;border-radius:14px;border:1px solid var(--gold-line)">' : '<div style="width:46px;flex:none">' + cardArt() + '</div>';
-      view.innerHTML = '<div class="row" style="gap:14px">' + thumb + '<div><div class="eyebrow">Almost there</div><h1 class="h2" style="margin-top:4px">Confirm the match</h1></div></div>' +
-        '<div class="row wrap" style="margin:14px 0 16px;gap:8px"><span class="chip gold">' + I("spark") + 'Sample match</span><span class="chip">Not read from your photo</span></div>' +
-        c.map(function (x, i) {
-          return '<button class="cand' + (i === state.pickedCandidate ? " on" : "") + '" data-i="' + i + '"><span class="rad"></span><span class="ct"><b>' + esc(x.name) + '</b><span>' + esc(x.variant) + '</span><div class="bar"><i style="width:' + x.score + '%"></i></div></span><span class="score"><b class="num">' + x.score + '</b><span>Sample<br>score</span></span></button>';
-        }).join("") +
-        '<div class="card" style="margin-top:14px"><button class="row between" id="ovr" style="width:100%"><span class="row" style="gap:10px;color:var(--gold2)">' + I("search") + '<b style="font-size:14.5px;color:var(--text)">Not right? Enter it yourself</b></span><span class="dim">' + I("down") + '</span></button>' +
-        '<div id="ovr-form" hidden><div class="grid2"><div class="field"><label for="o-year">Year</label><input class="input" id="o-year" placeholder="2001" inputmode="numeric"></div><div class="field"><label for="o-num">Card #</label><input class="input" id="o-num" placeholder="T247"></div></div>' +
-        '<div class="field"><label for="o-set">Set</label><input class="input" id="o-set" placeholder="Topps Chrome Traded"></div><div class="field"><label for="o-player">Player or subject</label><input class="input" id="o-player" placeholder="Albert Pujols"></div>' +
-        '<div class="field"><label for="o-var">Parallel or variant</label><input class="input" id="o-var" placeholder="Base, Refractor, Gold /50"></div><p class="muted small" style="margin:10px 0 0">Demo: manual entries open the same sample report.</p></div></div>' +
-        '<div class="cta-stack"><button class="btn btn-gold" id="confirm">' + I("check") + 'Confirm and see the report</button><a class="btn btn-ghost" href="#/scan">Start over</a></div>' + footer();
-      view.querySelectorAll(".cand").forEach(function (b) { b.onclick = function () { state.pickedCandidate = +b.dataset.i; view.querySelectorAll(".cand").forEach(function (o) { o.classList.toggle("on", o === b); }); }; });
-      document.getElementById("ovr").onclick = function () { var f = document.getElementById("ovr-form"); f.hidden = !f.hidden; };
-      document.getElementById("confirm").onclick = function () {
-        var manual = !document.getElementById("ovr-form").hidden && document.getElementById("o-player").value.trim();
-        if (manual || !c[state.pickedCandidate].hasReport) toast("Demo: only the Base sample report is built, so it opens that one.");
-        location.hash = "#/report";
+  /* CONFIRM — always required, even a single photo match. */
+  function sampleCatalog() {
+    return CH_SETGUARD.structureAll((window.CARDHOUND_SAMPLE && CARDHOUND_SAMPLE.candidates) || []);
+  }
+  function renderConfirm(pack) {
+    state.check = pack;
+    var c = pack.candidates || [];
+    if (state.pickedCandidate >= c.length) state.pickedCandidate = 0;
+    var pre = pack.prefill || {};
+    var thumb = state.photo ? '<img src="' + state.photo + '" alt="" style="width:60px;height:60px;object-fit:cover;border-radius:14px;border:1px solid var(--line)">' : '<div style="width:46px;flex:none">' + cardArt() + '</div>';
+    var rows = c.map(function (x, i) {
+      return '<button type="button" class="cand' + (i === state.pickedCandidate ? " on" : "") + '" data-i="' + i + '"><span class="rad"></span><span class="ct"><b>' + esc(x.player || x.name) + '</b>' +
+        '<span class="setrow"><span class="setchip">' + esc(x.year ? x.year + " " + x.set : x.set) + '</span><span class="setchip">#' + esc(x.number) + '</span><span class="setchip">' + esc(x.variant || "Variant") + '</span></span></span></button>';
+    }).join("");
+    view.innerHTML = '<a class="link-btn" href="#/scan">' + I("left") + 'Back</a>' +
+      '<div class="row" style="gap:14px;margin-top:12px">' + thumb + '<div><h1 class="h2">Is this the exact card?</h1></div></div>' +
+      '<p class="lead">Set must match the cardboard. Topps ≠ Topps Chrome ≠ Update. Base ≠ Refractor / parallel.</p>' +
+      '<div id="live-slot">' + liveHuntBody() + '</div>' +
+      '<span class="chip">SAMPLE</span>' +
+      (rows || '<div class="card" style="margin-top:12px"><b>No single match yet.</b><p class="small muted" style="margin:6px 0 0">Type the year, set, number, and variant.</p></div>') +
+      '<div class="card" style="margin-top:14px"><button class="row between" id="ovr" type="button" style="width:100%;min-height:48px"><span class="row" style="gap:10px"><b style="font-size:15px">Type the set myself</b></span><span class="dim">' + I("down") + '</span></button>' +
+      '<div id="ovr-form" ' + (c.length ? "hidden" : "") + '><div class="grid2"><div class="field"><label for="o-year">Year</label><input class="input" id="o-year" placeholder="2001" inputmode="numeric" value="' + esc(pre.year || "") + '"></div><div class="field"><label for="o-num">Card #</label><input class="input" id="o-num" placeholder="T247" value="' + esc(pre.card_number || pre.number || "") + '"></div></div>' +
+      '<div class="field"><label for="o-set">Set</label><input class="input" id="o-set" placeholder="1998 Topps Chrome" value="' + esc(pre.set || "") + '"></div><div class="field"><label for="o-player">Player or subject</label><input class="input" id="o-player" placeholder="Albert Pujols" value="' + esc(pre.player || "") + '"></div>' +
+      '<div class="field"><label for="o-var">Parallel or variant</label><input class="input" id="o-var" placeholder="Base, Refractor, Gold /50" value="' + esc(pre.parallel_color || pre.variant || "") + '"></div>' +
+      '<p class="confirm-err" id="confirm-err" hidden>Add the set (example: 1998 Topps Chrome).</p></div></div>' +
+      '<div class="cta-stack"><button class="btn btn-gold" id="confirm" type="button">Confirm — show sold prices</button><a class="btn btn-ghost" href="#/scan">Start over</a></div>' + flowEnd({ leave: true, huntLine: state.liveHunt ? CH_AI.huntLine(state.liveHunt) : "" }) + footer();
+    view.querySelectorAll(".cand").forEach(function (b) { b.onclick = function () { state.pickedCandidate = +b.dataset.i; view.querySelectorAll(".cand").forEach(function (o) { o.classList.toggle("on", o === b); }); }; });
+    document.getElementById("ovr").onclick = function () { var f = document.getElementById("ovr-form"); f.hidden = !f.hidden; };
+    document.getElementById("confirm").onclick = function () { confirmExact(pack); };
+  }
+  function confirmExact(pack) {
+    var form = document.getElementById("ovr-form");
+    var manualOn = form && !form.hidden;
+    var picked;
+    if (manualOn) {
+      picked = {
+        year: document.getElementById("o-year").value.trim(),
+        set: document.getElementById("o-set").value.trim(),
+        number: document.getElementById("o-num").value.trim(),
+        player: document.getElementById("o-player").value.trim(),
+        variant: document.getElementById("o-var").value.trim()
       };
+    } else picked = (pack.candidates || [])[state.pickedCandidate] || null;
+    if (!picked) {
+      var err = document.getElementById("confirm-err");
+      if (form) form.hidden = false;
+      if (err) { err.hidden = false; err.textContent = "Add the set (example: 1998 Topps Chrome)."; }
+      return;
+    }
+    var decision = CH_SETGUARD.evaluate(picked, {
+      read: pack.read || null,
+      catalog: pack.catalog || sampleCatalog(),
+      explicitPick: true,
+      ambiguous: (pack.candidates || []).length > 1 && !manualOn ? false : !!(pack.candidates && pack.candidates.length > 1 && !CH_SETGUARD.confirmRequired())
     });
+    if (!decision.priced && /^missing_/.test(decision.code)) {
+      if (form) form.hidden = false;
+      var err2 = document.getElementById("confirm-err");
+      if (err2) { err2.hidden = false; err2.textContent = decision.detail; }
+      return;
+    }
+    if (!decision.priced) { state.unpriced = decision; location.hash = "#/unpriced"; return; }
+    state.unpriced = null;
+    state.confirmed = decision.picked;
+    location.hash = "#/report";
+  }
+  function matchScreen() {
+    if (state.check && state.check.source === "hunt") { renderConfirm(state.check); return; }
+    D.identifyCard(state.photo).then(function (res) {
+      var candidates = CH_SETGUARD.structureAll(res.candidates);
+      renderConfirm({ source: "photo", candidates: candidates, catalog: sampleCatalog(), read: CH_SETGUARD.photoRead(candidates), prefill: {} });
+    });
+  }
+  function unpricedScreen() {
+    var d = state.unpriced || { title: "UNPRICED", headline: "We won't guess the set.", detail: "Pick the exact set.", pickedLine: "", readLine: "" };
+    view.innerHTML = '<section class="unpriced" aria-label="UNPRICED">' +
+      '<div class="eyebrow">Exact set</div><h1 class="h1">' + esc(d.title || "UNPRICED") + '</h1>' +
+      '<p class="lead" style="font-size:18px;color:var(--text)">' + esc(d.headline || "We won't guess the set.") + '</p>' +
+      (d.pickedLine ? '<div class="card"><b>You picked</b><p style="margin:6px 0 0">' + esc(d.pickedLine) + '</p>' +
+        (d.readLine ? '<b style="display:block;margin-top:12px">That doesn\'t match</b><p style="margin:6px 0 0">' + esc(d.readLine) + '</p>' : "") + '</div>' : "") +
+      '<p style="font-size:16px;font-weight:700">Wrong set → wrong price.</p>' +
+      '<p class="muted">' + esc(d.detail || "") + '</p>' +
+      '<div class="cta-stack"><a class="btn btn-gold" href="#/match">Pick the exact set</a><a class="btn btn-ghost" href="#/scan">Start over</a></div></section>' + footer();
   }
 
   /* REPORT */
@@ -220,12 +573,51 @@
       var oddsLeg = k.rows.map(function (x) { return '<span><i style="background:' + oc[x.grade] + '"></i>' + x.grade + ' ' + Math.round(x.odds * 100) + '%</span>'; }).join("");
       var sales = r.sales.map(function (s) { return '<tr><td>' + s.date + '</td><td>' + s.grade + '</td><td class="dim">' + s.type + '</td><td class="num"><b>' + money(s.price) + '</b></td></tr>'; }).join("");
       var pop = r.pop, kv = function (a, b) { return '<dt>' + a + '</dt><dd>' + b + '</dd>'; };
-      var h = '<div class="row wrap" style="gap:8px;margin-bottom:12px">' + (state.fromFlow ? '<span class="chip gold">' + I("spark") + 'Sample match</span>' : "") + '<span class="chip">Sample report</span><span class="chip">' + esc(r.asOf) + '</span></div>';
-      h += '<section class="hero"><div class="hero-top"><div class="hero-art">' + cardArt() + '</div><div style="min-width:0"><div class="eyebrow">' + c.category + ' · Rookie</div>' +
-        '<h1>' + c.year + ' ' + esc(c.set) + ' #' + c.number + ' ' + esc(c.player) + '</h1><div class="meta">' + esc(c.variant) + ' · ' + esc(c.team) + '</div>' +
-        '<div class="row" style="margin-top:10px;gap:8px"><span class="callpill cp-BUY" style="height:24px;font-size:13px">' + callWord + '</span><span class="small muted">Sample call, below</span></div></div></div>' +
-        '<div class="kpis"><div class="kpi"><span>Raw comp</span><b class="num">' + money(raw.w30.median) + '</b><small>30d median</small></div><div class="kpi"><span>PSA 9</span><b class="num">' + money(p9.comp) + '</b><small>30d median</small></div>' +
-        '<div class="kpi"><span>Trend</span><b class="num ' + (tr >= 0 ? "pill-up" : "pill-down") + '">' + pct(tr) + '</b><small>30d vs 90d</small></div></div></section>';
+      function statsFor(g) {
+        if (g === "Raw") return { label: "Raw", low: raw.w30.low, median: raw.w30.median, high: raw.w30.high, n: raw.w30.n, thin: raw.w30.n < 5 };
+        var row = r.graded.filter(function (x) { return x.grade === g; })[0];
+        if (!row) return { label: g, low: null, median: null, high: null, n: 0, thin: true };
+        return { label: row.grade, low: row.w30.low, median: row.w30.median, high: row.w30.high, n: row.w30.n, thin: !!row.thin || row.w30.n < 5 };
+      }
+      function statHTML(s) {
+        return '<div class="kpi median"><span>Median · ' + esc(s.label) + '</span><b class="num">' + money(s.median) + '</b><small>30 days · SAMPLE</small></div>' +
+          '<div class="kpi"><span>Low</span><b class="num">' + money(s.low) + '</b></div><div class="kpi"><span>High</span><b class="num">' + money(s.high) + '</b></div>' +
+          '<div class="kpi"><span># sales</span><b class="num">' + s.n + '</b><small>30 days</small></div>';
+      }
+      function soldHTML() {
+        var rows = CH_SETGUARD.orderSales(r.sales, c);
+        if (!rows.length) return '<p class="muted">No sold comps in this window for this exact card.</p>';
+        var title = c.year + " " + c.set + " #" + c.number + " " + c.player;
+        var alt = "Sample photo of the exact card: " + title + (c.variant ? ", " + c.variant : "") + ". Not a live listing photo.";
+        var latest = rows[0];
+        var hero = '<article class="comp-hero"><div class="comp-photo-frame"><img class="comp-photo" alt="' + esc(alt) + '" src="img/sample-card.webp" width="640" height="640"></div>' +
+          '<div class="comp-cap"><div><span class="chip">Latest · ' + esc(latest.grade) + '</span><b class="who">' + esc(title) + '</b>' +
+          '<span class="meta">' + esc(latest.date) + " · " + esc(latest.type) + " · " + esc(c.variant || "Exact card") + '</span></div>' +
+          '<span class="px num">' + money(latest.price) + '</span></div></article>';
+        var older = rows.slice(1).map(function (s) {
+          return '<article class="comp-older"><img alt="" src="img/sample-card-sm.webp" width="72" height="72"><span><b>' + esc(title) + '</b><span class="meta">' + esc(s.date) + " · " + esc(s.type) + " · " + esc(s.grade) + '</span></span><span class="px num">' + money(s.price) + '</span></article>';
+        }).join("");
+        return hero + (older ? '<div class="comp-older-list">' + older + '</div>' : "") +
+          microNote() +
+          '<p class="small dim" style="margin:10px 0 0">Exact card only. Other sets and parallels stay off this list.</p>';
+      }
+      var gradeNow = "Raw", saleNow = "sold", s0 = statsFor("Raw");
+      var h = '<a class="link-btn" href="#/scan">' + I("left") + 'Check another</a>' +
+        '<div class="row wrap" style="gap:8px;margin:12px 0"><span class="chip">SAMPLE</span><span class="chip ok">Exact card</span><span class="chip">' + esc(r.asOf) + '</span></div>' +
+        '<h1 class="h2">' + c.year + ' ' + esc(c.set) + ' #' + c.number + ' ' + esc(c.player) + '</h1>' +
+        '<p class="muted" style="margin:4px 0 0">' + esc(c.variant) + ' · ' + esc(c.team) + '</p>' +
+        '<section class="callband callbox ' + callWord + '" aria-label="AI deal call"><div class="callpill cp-' + callWord + '">' + callWord + '</div><div class="callword">' + callWord + '</div>' +
+        '<p class="because">' + because + '</p><p class="small" style="margin:8px 0 0;opacity:.8">AI deal call. This sample says GRADE.</p>' + microNote() + '</section>' +
+        '<div class="seg" id="grade-seg">' + ["Raw", "PSA 10", "PSA 9", "PSA 8"].map(function (g) { return '<button type="button" data-g="' + g + '"' + (g === "Raw" ? ' class="on"' : "") + '>' + g + '</button>'; }).join("") + '</div>' +
+        '<div class="stat4" id="stat-grid">' + statHTML(s0) + '</div>' + microNote() +
+        (s0.thin ? '<p class="small muted" id="thin-note">Thin comps — fewer than 5 sales. Treat as soft.</p>' : '<p class="small muted" id="thin-note" hidden></p>') +
+        gate("comps") +
+        '<div class="seg" id="sale-seg" style="margin-top:12px"><button type="button" data-sale="sold" class="on">Sold</button><button type="button" data-sale="ask">For sale now</button></div>' +
+        '<p class="small muted" id="sale-note" style="margin:8px 0">Sold comps · Card Ladder only · exact card · SAMPLE. Your AI reads these for the deal call.</p>' +
+        '<div id="sold-list">' + soldHTML() + '</div><div id="ask-list" hidden></div>' +
+        '<div class="stack" style="margin-top:12px"><a class="tool" href="#/deals/watch"><span class="tic">' + I("eye") + '</span><span class="tt"><b>Watchlist</b><span>Save this card</span></span>' + I("right") + '</a>' +
+        '<a class="tool" href="#/deals/snipes"><span class="tic">' + I("target") + '</span><span class="tt"><b>Auction Watch</b><span>Reminder only. You set the max.</span></span>' + I("right") + '</a></div>' +
+        '<details class="more-on-card" id="more-on-card"><summary>More on this card</summary>';
       h += '<div class="sec">' + secHead("01", "Exact card") + '<div class="card"><dl class="kv">' + kv("Year", c.year) + kv("Set", esc(c.set)) + kv("Card #", c.number) + kv("Player", esc(c.player)) + kv("Variant", esc(c.variant)) + kv("CardHound ID", '<span style="font-size:12px">' + c.id + '</span>') + '</dl>' +
         '<div class="note" style="margin-top:14px">' + I("list") + '<div><b style="color:var(--text)">Variant rules.</b> Must have: ' + c.mustHave.join(", ") + '. Must not have: ' + c.mustNot.join(", ") + '.</div></div></div></div>';
       h += '<div class="sec">' + secHead("02", "Raw comps", "Sample") + '<div class="card"><table class="tbl"><thead><tr><th>Window</th><th>Sales</th><th>Median</th></tr></thead><tbody>' +
@@ -235,9 +627,8 @@
       h += '<div class="sec">' + secHead("03", "Graded comps", "Sample · 30d") + '<div class="card"><table class="tbl"><thead><tr><th>Grade</th><th>Sales</th><th>Low</th><th>Median</th><th>High</th></tr></thead><tbody>' + gradedRows + '</tbody></table><p class="small muted" style="margin:10px 0 0">THIN = fewer than 5 sales in 30 days. Treat as soft.</p></div>' +
         '<div class="card" style="margin-top:10px"><div class="sec-head" style="margin-bottom:6px"><h3 class="h3">Recent sold (sample)</h3></div><table class="tbl"><tbody>' + sales + '</tbody></table>' +
         '<p class="small dim" style="margin:10px 0 0">Excluded: ' + r.dropped.map(function (x) { return money(x.price) + " (" + esc(x.why) + ")"; }).join("; ") + '.</p></div></div>';
-      if (window.CHForSale) h += '<div class="sec" id="rp-forsale">' + window.CHForSale.html(window.CHForSale.sample({ name: c.year + " " + c.set + " #" + c.number + " " + c.player }, "PSA 9", p9.comp), { gradeLabel: "PSA 9", median: p9.comp }) + '</div>';   /* For sale now: sample build = labeled Sample rows only */
-      h += '<div class="sec">' + secHead("04", "Price trend", "Sample") + '<div class="card"><div class="seg" id="cg" style="margin-bottom:10px"><button data-g="Raw" class="on">Raw</button><button data-g="PSA 9">PSA 9</button><button data-g="PSA 10">PSA 10</button></div>' +
-        '<div class="chart-wrap" id="chart"></div><div class="chart-legend"><span id="ch-l"></span><span id="ch-r"></span></div><div class="seg" id="cr" style="margin-top:12px"><button data-r="90">90 days</button><button data-r="365" class="on">1 year</button></div>' + gate("trend") + '</div></div>';
+      h += '<div class="sec">' + secHead("04", "Track this card", "AI chart") + '<div class="card"><p class="small muted" style="margin:0 0 10px">Your AI charts this card from Card Ladder sold comps. SAMPLE.</p><div class="seg" id="cg" style="margin-bottom:10px"><button data-g="Raw" class="on">Raw</button><button data-g="PSA 9">PSA 9</button><button data-g="PSA 10">PSA 10</button></div>' +
+        '<div class="chart-wrap" id="chart"></div><div class="chart-legend"><span id="ch-l"></span><span id="ch-r"></span></div>' + microNote() + '<div class="seg" id="cr" style="margin-top:12px"><button data-r="90">90 days</button><button data-r="365" class="on">1 year</button></div>' + gate("trend") + '</div></div>';
       h += '<div class="sec">' + secHead("05", "Pop and gem rate", "Sample") + '<div class="card"><div class="kpis" style="margin-top:0"><div class="kpi"><span>PSA 10</span><b class="num">' + pop.psa10.toLocaleString() + '</b></div><div class="kpi"><span>PSA 9</span><b class="num">' + pop.psa9.toLocaleString() + '</b></div><div class="kpi"><span>Gem rate</span><b class="num">' + (pop.psa10 / pop.total * 100).toFixed(1) + '%</b></div></div>' +
         '<p class="small muted" style="margin:10px 0 0">Of ' + pop.total.toLocaleString() + ' graded (sample). Raw copies usually gem lower than the pop suggests.</p>' + gate("pop") + '</div></div>';
       h += '<div class="sec">' + secHead("06", "Grading ROI", "Sample") + '<div class="card"><p class="small muted" style="margin:0 0 10px">Net after eBay fees (' + (r.fees.ebayPct * 100).toFixed(2) + '% + ' + money(r.fees.ebayFixed, true) + '), grading, and ' + money(r.fees.shipIns) + ' ship and insurance. Selling raw now nets <b style="color:var(--text)">' + money(k.rawNet) + '</b>.</p>' +
@@ -251,13 +642,36 @@
         '<div class="opt"><span class="n">3</span><div><b>Hold raw</b><p>Trend is up, but we don\'t forecast prices.</p></div><span class="v dim" style="font-weight:600;font-size:12px">opinion</span></div></div></div>';
       h += '<div class="sec">' + secHead("09", "Live auctions", "Sample") + '<div id="rp-auctions"></div></div>';
       h += '<div class="sec">' + secHead("10", "Risk notes") + '<div class="card">' + r.risks.map(function (x) { return '<div class="risk"><i></i><span>' + esc(x) + '</span></div>'; }).join("") + '</div></div>';
-      h += '<section class="callbox" aria-label="CardHound call"><div class="eyebrow">The CardHound call · sample</div><div class="callword">' + callWord + '</div>' +
-        '<p class="because"><span class="muted">Because</span> ' + because.replace("Even", "even") + '</p><div class="row" style="justify-content:center;gap:8px;margin-top:16px;flex-wrap:wrap"><span class="chip gold">Confidence: Medium</span><span class="chip">Our opinion, not advice</span></div></section>' +
-        '<div class="cta-stack"><a class="btn btn-ghost" href="#/tool/variant">' + I("list") + 'Check it\'s the exact variant</a><a class="btn btn-ghost" href="#/scan">' + I("scan") + 'Scan another card</a></div>' + footer();
+      h += '</details><div class="cta-stack"><a class="btn btn-ghost" href="#/scan">Check another card</a></div>' + flowEnd({ leave: true }) + footer();
       view.innerHTML = h;
+      function paintGrade(g) {
+        gradeNow = g;
+        var s = statsFor(g);
+        document.getElementById("stat-grid").innerHTML = statHTML(s);
+        var note = document.getElementById("thin-note");
+        if (note) { note.hidden = !s.thin; note.textContent = s.thin ? "Thin comps — fewer than 5 sales. Treat as soft." : ""; }
+        document.getElementById("sold-list").innerHTML = soldHTML();
+      }
+      view.querySelectorAll("#grade-seg button").forEach(function (b) {
+        b.onclick = function () {
+          view.querySelectorAll("#grade-seg button").forEach(function (o) { o.classList.toggle("on", o === b); });
+          paintGrade(b.dataset.g);
+        };
+      });
+      view.querySelectorAll("#sale-seg button").forEach(function (b) {
+        b.onclick = function () {
+          saleNow = b.dataset.sale;
+          view.querySelectorAll("#sale-seg button").forEach(function (o) { o.classList.toggle("on", o === b); });
+          document.getElementById("sold-list").hidden = saleNow !== "sold";
+          document.getElementById("ask-list").hidden = saleNow !== "ask";
+          document.getElementById("sale-note").textContent = saleNow === "ask" ? "Open-market asking prices. Not Card Ladder sold comps." : "Sold comps · Card Ladder only · exact card · SAMPLE. Your AI reads these for the deal call.";
+        };
+      });
       Promise.all([D.getDeals(), D.getGems()]).then(function (res) {
         state._deals = res[0].concat(res[1]);
         var mine = state._deals.filter(function (d) { return d.card.indexOf("T247") > -1; });
+        var ask = document.getElementById("ask-list");
+        if (ask) ask.innerHTML = (mine.length ? mine.map(function (d) { return dealCard(d, true); }).join("") : '<p class="muted">No asking prices in this sample for this exact card.</p>') + '<p class="small dim">Open-market asking prices. Not Card Ladder sold comps.</p>';
         var el = document.getElementById("rp-auctions"); if (el) el.innerHTML = mine.map(function (d) { return dealCard(d, true); }).join("") + gate("listings");
       });
       var cur = { g: "Raw", r: 365 };
@@ -292,11 +706,13 @@
     view.querySelectorAll('[data-scopeval="' + list + '"] button').forEach(function (b) { b.onclick = function () { state.scopes[list].value = b.dataset.o; rerender(); }; });
   }
   function marketsScreen(p) {
-    var sub = ["movers", "highs", "picks", "searched"].indexOf(p.sub) > -1 ? p.sub : "movers";
-    var head = '<div class="eyebrow">Markets</div><h1 class="h1" style="font-size:30px">' + ({ movers: "Daily <em>Movers</em>", highs: "New <em>Highs</em>", picks: "Buy, Hold, <em>Sell</em>", searched: "Most <em>Searched</em>" }[sub]) + '</h1>' +
-      '<div class="subtabs sub4">' + [["movers", "Movers"], ["highs", "New Highs"], ["picks", "Buy / Hold / Sell"], ["searched", "Most Searched"]].map(function (t) { return '<button data-sub="' + t[0] + '" class="' + (sub === t[0] ? "on" : "") + '">' + t[1] + '</button>'; }).join("") + '</div>';
+    var sub = ["movers", "highs", "picks", "searched", "gems"].indexOf(p.sub) > -1 ? p.sub : "movers";
+    var titles = { movers: "Movers", highs: "New Highs", picks: "Picks", searched: "Most searched", gems: "Gem Hunt" };
+    var head = '<div class="eyebrow">Lists</div><h1 class="h1" style="font-size:28px">' + titles[sub] + '</h1>' +
+      '<div class="subtabs scroll-tabs">' + [["movers", "Movers"], ["highs", "Highs"], ["picks", "Picks"], ["searched", "Searched"], ["gems", "Gems"]].map(function (t) { return '<button type="button" data-sub="' + t[0] + '" class="' + (sub === t[0] ? "on" : "") + '">' + t[1] + '</button>'; }).join("") + '</div>';
     var rer = function () { var y = window.scrollY; marketsScreen({ sub: sub }); setTimeout(function () { window.scrollTo(0, y); }, 0); };
-    var fn = sub === "highs" ? D.getNewHighs : sub === "picks" ? D.getPicks : sub === "searched" ? D.getMostSearched : D.getMovers, sc = state.scopes[sub];
+    if (!state.scopes[sub]) state.scopes[sub] = { view: "overall", value: null };
+    var fn = sub === "gems" ? D.getGems : sub === "highs" ? D.getNewHighs : sub === "picks" ? D.getPicks : sub === "searched" ? D.getMostSearched : D.getMovers, sc = state.scopes[sub];
     fn(sc).then(function (rows) {
       var body = "";
       if (sub === "movers") {
@@ -304,10 +720,10 @@
         var list = rows.filter(function (r) { return !r.thin && side(r); }).sort(function (a, b) { return dir === "up" ? b.pct - a.pct : a.pct - b.pct; });
         var thinL = rows.filter(function (r) { return r.thin && side(r); });
         var row = function (r, i) {
-          return '<div class="lrow' + (r.thin ? " thin" : "") + '"><span class="rk">' + (r.thin ? "\u2013" : i + 1) + '</span><div class="nm"><b>' + esc(r.card) + '</b><span>' + esc(r.grade) + ' · ' + r.sales + ' today · ' + r.base + ' in 30d' + (r.thin ? ' <span class="chip thin" title="' + esc(r.thinWhy) + '">THIN</span>' : "") + '</span></div>' +
+          return '<div class="lrow mover-row' + (r.thin ? " thin" : "") + '"><span class="rk">' + (r.thin ? "\u2013" : i + 1) + '</span><div class="nm"><b>' + esc(r.card) + '</b><span>' + esc(r.grade) + ' · ' + r.sales + ' today · ' + r.base + ' in 30d' + (r.thin ? ' <span class="chip thin" title="' + esc(r.thinWhy) + '">THIN</span>' : "") + '</span></div>' +
             '<div class="rt">' + sparkSVG(r.spark, r.pct >= 0) + '<span class="pct num ' + (r.pct >= 0 ? "pill-up" : "pill-down") + '">' + pct(r.pct) + '</span></div></div>';
         };
-        body = '<div class="seg seg-sm" id="dir" style="margin-top:12px"><button data-d="up" class="' + (dir === "up" ? "on" : "") + '">Up</button><button data-d="down" class="' + (dir === "down" ? "on" : "") + '">Down</button></div>' +
+        body = '<div class="seg" id="dir" style="margin-top:12px"><button type="button" data-d="up" class="' + (dir === "up" ? "on" : "") + '">Up</button><button type="button" data-d="down" class="' + (dir === "down" ? "on" : "") + '">Down</button></div>' +
           '<div class="card" style="margin-top:12px">' + (list.length ? list.map(row).join("") : '<div class="empty">No ranked ' + dir + ' moves in this view (sample).</div>') + '</div>' +
           (thinL.length ? '<div class="group-h"><h3 class="h3">Thin · shown, not ranked</h3></div><div class="card">' + thinL.map(row).join("") + '</div>' : "") +
           '<p class="small dim" style="margin-top:12px">Today\'s median vs the prior 30 days. Ranked only with 3+ sales today and 10+ in the prior 30 days. Moves describe past sample sales, not a forecast.</p>' + gate(sc.value === "Pokémon" || sc.value === "Magic" ? "tcg" : "movers");
@@ -319,6 +735,10 @@
           return '<div class="group-h"><span class="callpill cp-' + g + '">' + g + '</span><span class="small dim">' + rs.length + ' sample pick' + (rs.length === 1 ? "" : "s") + '</span></div><div class="card">' +
             (rs.length ? rs.map(function (r) { return '<div class="prow"><b>' + esc(r.card) + '</b><p>' + esc(r.why) + '</p><div class="tg"><span>' + esc(r.grade) + '</span><span>Buy under <em class="num">' + money(r.buyTarget) + '</em></span><span>Sell near <em class="num">' + money(r.sellTarget) + '</em></span><span>' + r.conf + ' conf.</span></div></div>'; }).join("") : '<div class="empty">No ' + g + ' picks in this view.</div>') + '</div>';
         }).join("") + '<p class="small dim" style="margin-top:12px">Our opinion from fixed rules, on sample data. Not financial advice; no outcome is guaranteed.</p>';
+      } else if (sub === "gems") {
+        body = '<p class="lead">Hard-to-find and mislabeled listings under the sample comp. Look-only.</p>' +
+          (rows.length ? rows.map(function (d) { return dealCard(d, true); }).join("") : '<div class="empty">No gem hunts in this sample.</div>') +
+          '<p class="small dim" style="margin-top:12px">SAMPLE. CardHound never bids for you.</p>';
       } else {
         rows.sort(function (a, b) { return b.lookups - a.lookups; });
         body = '<div class="card" style="margin-top:12px">' + (rows.length ? rows.map(function (r, i) {
@@ -326,8 +746,8 @@
           return '<div class="lrow"><span class="rk" style="color:' + (i < 3 ? "var(--gold2)" : "var(--dim)") + '">' + (i + 1) + '</span><div class="nm"><b>' + esc(r.card) + '</b><span>' + r.lookups.toLocaleString() + ' lookups · ' + r.users.toLocaleString() + ' people</span></div><div class="rt">' + ch + '</div></div>';
         }).join("") : '<div class="empty">No sample lookups in this view.</div>') + '</div><p class="small dim" style="margin-top:12px">Sample lookup counts, last 7 days. In the real app these come only from CardHound\'s own lookup log.</p>';
       }
-      view.innerHTML = head + '<div class="row between" style="margin-bottom:10px"><span class="small muted">' + esc(state.meta.asOf) + '</span><span class="chip">Sample</span></div>' + scopeBar(sub) + body + footer();
-      view.querySelectorAll("[data-sub]").forEach(function (b) { b.onclick = function () { location.hash = "#/markets/" + b.dataset.sub; }; });
+      view.innerHTML = head + '<div class="row between" style="margin-bottom:10px"><span class="small muted">' + esc(state.meta.asOf) + '</span><span class="chip">SAMPLE</span></div>' + (sub === "gems" ? "" : scopeBar(sub)) + body + microNote() + flowEnd() + footer();
+      view.querySelectorAll("[data-sub]").forEach(function (b) { b.onclick = function () { var base = parseHash().route === "lists" ? "lists" : "markets"; location.hash = "#/" + base + "/" + b.dataset.sub; }; });
       view.querySelectorAll("#dir button").forEach(function (b) { b.onclick = function () { state.moversDir = b.dataset.d; rer(); }; });
       bindScope(sub, rer);
       if (sub === "highs" && BOOM) BOOM.bindList(rows, sc, rer);
@@ -341,19 +761,19 @@
   function fmtEnds(min) { if (min >= 1440) return Math.round(min / 1440) + "d left"; if (min >= 60) return Math.floor(min / 60) + "h " + (min % 60) + "m left"; return min + "m left"; }
   function dealCard(d, withNote) {
     var diff = (d.price / d.comp - 1) * 100, good = diff < 0;
-    var act = d.type === "Auction" ? '<button class="btn btn-gold btn-xs" data-aw="' + d.id + '">' + I("target") + 'Watch</button>'
+    var act = d.type === "Auction" ? '<button class="btn btn-gold btn-xs" data-snipe="' + d.id + '">' + I("target") + 'Auction Watch</button>'
       : d.type === "Best Offer" ? '<button class="btn btn-gold btn-xs" data-offer="' + d.id + '">' + I("handshake") + 'Offer helper</button>'
       : '<button class="btn btn-ghost btn-xs" data-alert="1">' + I("bell") + 'Alert me</button>';
     return '<div class="deal"><div class="top"><b>' + esc(d.card) + '</b><span class="chip" style="height:22px;font-size:10.5px">' + d.type + '</span></div>' +
       '<div class="small dim" style="margin-top:4px">' + esc(d.grade) + ' · ' + (d.type === "Auction" ? d.bids + " bids · " : "") + fmtEnds(d.endsMin) + '</div>' +
       (withNote && d.note ? '<div class="note" style="margin-top:10px">' + I("gem") + '<div>' + esc(d.note) + '</div></div>' : "") +
-      '<div class="vs"><div class="price num">' + money(d.price) + '<small>vs comp ' + money(d.comp) + '</small></div><span class="under ' + (good ? "good" : "bad") + ' num">' + (good ? Math.abs(diff).toFixed(0) + "% under" : diff.toFixed(0) + "% over") + '</span></div>' +
+      '<div class="vs"><div class="price num">' + money(d.price) + '<small>vs comp ' + money(d.comp) + '</small></div><span class="under ' + (good ? "good" : "bad") + ' num">' + (good ? Math.abs(diff).toFixed(0) + "% under" : diff.toFixed(0) + "% over") + '</span></div>' + microNote() +
       '<div class="acts">' + act + '<button class="btn btn-ghost btn-xs" data-toast="Demo: sample listings have no eBay link.">' + I("eye") + 'View</button></div></div>';
   }
   function dealsScreen(p) {
-    var sub = ["deals", "watch", "gems", "auction-watch"].indexOf(p.sub) > -1 ? p.sub : "deals";
-    var head = '<div class="eyebrow">Buyer tools</div><h1 class="h1" style="font-size:30px">' + ({ deals: "Live <em>deals</em>", watch: "Your <em>watchlist</em>", gems: "Gem <em>Hunt</em>", "auction-watch": "Auction <em>Watch</em>" }[sub]) + '</h1>' +
-      '<div class="subtabs" style="gap:18px">' + [["deals", "Deals"], ["watch", "Watchlist"], ["gems", "Gem Hunt"], ["auction-watch", "Auction Watch"]].map(function (t) { return '<button data-dsub="' + t[0] + '" class="' + (sub === t[0] ? "on" : "") + '">' + t[1] + '</button>'; }).join("") + '</div>';
+    var sub = ["deals", "watch", "gems", "snipes"].indexOf(p.sub) > -1 ? p.sub : "deals";
+    var head = '<div class="eyebrow">More</div><h1 class="h1" style="font-size:28px">' + ({ deals: "For sale", watch: "Watchlist", gems: "Gem Hunt", snipes: "Auction Watch" }[sub]) + '</h1>' +
+      '<div class="subtabs scroll-tabs">' + [["deals", "For sale"], ["watch", "Watchlist"], ["gems", "Gem Hunt"], ["snipes", "Auction Watch"]].map(function (t) { return '<button type="button" data-dsub="' + t[0] + '" class="' + (sub === t[0] ? "on" : "") + '">' + t[1] + '</button>'; }).join("") + '</div>';
     Promise.all([D.getDeals(), D.getGems(), D.getSavedSearches()]).then(function (res) {
       var deals = res[0], gems = res[1], saved = res[2], body = "";
       state._deals = deals.concat(gems);
@@ -366,57 +786,56 @@
         body = gate("watchlist") + '<div id="vw-list"></div><div style="height:14px"></div>' + deals.filter(function (d) { return d.watch; }).map(function (d) { return dealCard(d); }).join("");
       } else if (sub === "gems") {
         body = '<p class="lead" style="margin-top:4px">Mislabeled or underdescribed listings priced under the sample comp. Look-only: CardHound never buys or bids for you.</p>' + gate("listings") + '<div id="vh-saved"></div><div style="height:14px"></div>' + gems.map(function (d) { return dealCard(d, true); }).join("");
-      } else body = watchList();
+      } else body = snipesList();
       view.innerHTML = head + body + footer();
       view.querySelectorAll("[data-dsub]").forEach(function (b) { b.onclick = function () { location.hash = "#/deals/" + b.dataset.dsub; }; });
       var al = document.getElementById("alerts"); if (al) al.onclick = alertSheet;
-      if (sub === "auction-watch") bindWatches();
+      if (sub === "snipes") bindSnipes();
       if (VOICE) VOICE.fillDeals(view, sub);
     });
   }
   function disclaimer() {
-    return '<div class="note" style="margin-top:14px">' + I("shield") + '<div><b style="color:var(--text)">CardHound never bids or buys.</b> You set your max, open the listing on eBay and place your bid there yourself. CardHound reminds you before the auction ends. It never sees the result: check eBay to see if you won.</div></div>';
+    return '<div class="note" style="margin-top:14px">' + I("shield") + '<div><b style="color:var(--text)">You set the max. CardHound never bids without your confirmation.</b> Today you place your max on eBay yourself and CardHound reminds you before the end. Automatic last-second bidding is <b style="color:var(--gold2)">coming soon, pending eBay approval</b> (Buy Offer API, limited release). Nothing is ever bid in this demo.</div></div>';
   }
   function cd(s) { var h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return (h ? h + ":" : "") + (m < 10 ? "0" : "") + m + ":" + (x < 10 ? "0" : "") + x; }
-  var ST_LABEL = { Scheduled: "Reminder set", Ended: "Auction ended" };
-  /* CardHound never bids, so there is no "placed" or "won". Older saved demo reminders are mapped to the honest states. */
-  function normWatch(s) { if (s.status === "Placed") { s.status = "Scheduled"; s.opened = true; } else if (s.status !== "Scheduled") s.status = "Ended"; return s; }
-  function remindText(s) { return "Reminder (demo): " + s.card + " ends soon. Your max: " + money(s.max, true) + ". Open it on eBay and bid yourself. CardHound never bids."; }
-  function watchList() {
-    var head = gate("auction_watch");
-    if (!state.watches.length) return head + '<div class="card" style="text-align:center;padding:28px 18px;margin-top:12px"><div style="width:60px;height:60px;margin:0 auto 12px;border-radius:50%;display:grid;place-items:center;color:var(--gold2);border:1px solid var(--gold-line)">' + I("target") + '</div><b>No auctions tracked yet</b><p class="muted small" style="margin:6px 0 14px">Tap <b>Watch</b> on any auction in Deals, Watchlist, Gem Hunt or a report.</p><a class="btn btn-gold btn-sm" href="#/deals">Browse auctions</a></div>' + disclaimer();
-    return head + '<div style="height:12px"></div>' + state.watches.map(function (s) {
-      var st = normWatch(s).status, live = st === "Scheduled", left = Math.max(0, Math.round((s.endsAt - Date.now()) / 1000));
-      return '<div class="deal"><div class="top"><b>' + esc(s.card) + '</b><span class="chip ' + (live ? "gold" : "") + '" style="height:22px;font-size:10.5px">' + ST_LABEL[st] + (live && s.opened ? " · eBay opened" : "") + ' · demo</span></div>' +
-        '<div class="vs"><div><div class="small dim">Your max</div><div class="price num">' + money(s.max, true) + '</div></div><div style="text-align:right"><div class="small dim">' + (live ? "Auction ends in (demo)" : "Result") + '</div><div class="countdown num" data-cd="' + s.id + '">' + (live ? cd(left) : "Check eBay") + '</div></div></div>' +
-        (live ? "" : '<p class="small muted" style="margin:6px 0 0">CardHound never bids, so only eBay knows if you won.</p>') +
-        '<div class="acts acts-wrap">' + (live ? '<button class="btn btn-gold btn-xs" data-ebay="' + s.id + '">' + I("ext") + 'Open on eBay</button><button class="btn btn-ghost btn-xs" data-edit="' + s.id + '">Edit max</button><button class="btn btn-ghost btn-xs" data-cancel="' + s.id + '">Cancel reminder</button><button class="btn btn-ghost btn-xs" data-sim="' + s.id + '">Preview reminder</button>' : '<button class="btn btn-ghost btn-xs" data-remove="' + s.id + '">Remove</button>') + '</div></div>';
-    }).join("") + disclaimer();
+  var ST_LABEL = { Scheduled: "Reminder set", Placed: "Max set on eBay", Won: "Won", Outbid: "Outbid" };
+  function snipesList() {
+    var head = gate("sniper");
+    if (!state.snipes.length) return head + '<div class="card" style="text-align:center;padding:28px 18px;margin-top:12px"><div style="width:60px;height:60px;margin:0 auto 12px;border-radius:50%;display:grid;place-items:center;color:var(--gold2);border:1px solid var(--gold-line)">' + I("target") + '</div><b>No auctions tracked yet</b><p class="muted small" style="margin:6px 0 14px">Tap <b>Auction Watch</b> on a live auction. You set the max. Nothing is bid for you.</p><a class="btn btn-gold btn-sm" href="#/deals">Browse auctions</a></div>' + disclaimer();
+    return head + '<div style="height:12px"></div>' + state.snipes.map(function (s) {
+      var st = s.status, live = st === "Scheduled" || st === "Placed", left = Math.max(0, Math.round((s.endsAt - Date.now()) / 1000));
+      return '<div class="deal"><div class="top"><b>' + esc(s.card) + '</b><span class="chip ' + (st === "Won" ? "ok" : st === "Outbid" ? "" : "gold") + '" style="height:22px;font-size:10.5px">' + ST_LABEL[st] + ' · demo</span></div>' +
+        '<div class="vs"><div><div class="small dim">Your max</div><div class="price num">' + money(s.max, true) + '</div></div><div style="text-align:right"><div class="small dim">' + (live ? "Auction ends in (demo)" : "Result (demo)") + '</div><div class="countdown num" data-cd="' + s.id + '">' + (live ? cd(left) : st) + '</div></div></div>' +
+        '<div class="acts acts-wrap">' + (live ? (st === "Scheduled" ? '<button class="btn btn-gold btn-xs" data-ebay="' + s.id + '">' + I("ext") + 'Set my max on eBay</button>' : "") + '<button class="btn btn-ghost btn-xs" data-edit="' + s.id + '">Edit</button><button class="btn btn-ghost btn-xs" data-cancel="' + s.id + '">Cancel</button><button class="btn btn-ghost btn-xs" data-sim="' + s.id + '">Skip ahead</button>' : '<button class="btn btn-ghost btn-xs" data-remove="' + s.id + '">Remove</button>') + '</div></div>';
+    }).join("") + '<div class="card tight row between" style="margin-top:12px"><span><b style="font-size:13.5px">Auto last-second bid</b><br><span class="small muted">Coming soon, pending eBay approval</span></span><span class="chip">Coming soon</span></div>' + disclaimer();
   }
-  function findWatch(id) { return state.watches.filter(function (x) { return x.id === id; })[0]; }
+  function findSnipe(id) { return state.snipes.filter(function (x) { return x.id === id; })[0]; }
   function ebayHandoff(s) {
-    if (s) { s.opened = true; saveWatches(); }
+    if (s && s.status === "Scheduled") { s.status = "Placed"; saveSnipes(); }
     toast("Demo: sample listings have no eBay link. In the app this opens the listing on eBay, where you enter your own max.");
   }
-  function bindWatches() {
+  function bindSnipes() {
     state.timers.push(setInterval(function () {
-      state.watches.forEach(function (s) {
-        if (normWatch(s).status !== "Scheduled") return;
+      state.snipes.forEach(function (s) {
+        if (s.status !== "Scheduled" && s.status !== "Placed") return;
         var left = Math.max(0, Math.round((s.endsAt - Date.now()) / 1000)), el = view.querySelector('[data-cd="' + s.id + '"]');
         if (el) el.textContent = cd(left);
-        if (left <= 120 && !s.reminded) { s.reminded = true; saveWatches(); toast(remindText(s)); }
         if (left === 0) {
-          s.status = "Ended"; saveWatches();
-          toast("Demo: auction ended. CardHound never bids, so check eBay for the result.");
-          dealsScreen({ sub: "auction-watch" });
+          s.status = (s.status === "Placed" && s.max >= s.price * 1.1) ? "Won" : "Outbid"; saveSnipes();
+          if (s.status === "Won" && D.addLedgerRow) {
+            var paid = Math.round(Math.min(s.max, s.price * 1.1) * 100) / 100;
+            D.addLedgerRow({ card: s.card, from: "eBay · Auction Watch win", seller: "sample-seller (demo)", price: paid, shipping: 4.99, tax: Math.round(paid * 7) / 100, order: "SAMPLE-AUTO-" + String(s.id).slice(-4), status: "bought", auto: true, sample: true });
+            toast("Demo: auction ended (Won). Logged to your Portfolio automatically.");
+          } else toast("Demo: auction ended (" + s.status + "). Simulated result.");
+          dealsScreen({ sub: "snipes" });
         }
       });
     }, 1000));
-    view.querySelectorAll("[data-ebay]").forEach(function (b) { b.onclick = function () { ebayHandoff(findWatch(b.dataset.ebay)); dealsScreen({ sub: "auction-watch" }); }; });
-    view.querySelectorAll("[data-cancel]").forEach(function (b) { b.onclick = function () { state.watches = state.watches.filter(function (s) { return s.id !== b.dataset.cancel; }); saveWatches(); toast("Reminder cancelled (demo)."); dealsScreen({ sub: "auction-watch" }); }; });
-    view.querySelectorAll("[data-remove]").forEach(function (b) { b.onclick = function () { state.watches = state.watches.filter(function (s) { return s.id !== b.dataset.remove; }); saveWatches(); dealsScreen({ sub: "auction-watch" }); }; });
-    view.querySelectorAll("[data-sim]").forEach(function (b) { b.onclick = function () { toast(remindText(findWatch(b.dataset.sim))); }; });
-    view.querySelectorAll("[data-edit]").forEach(function (b) { b.onclick = function () { var s = findWatch(b.dataset.edit); watchSheet(s.dealId, s); }; });
+    view.querySelectorAll("[data-ebay]").forEach(function (b) { b.onclick = function () { ebayHandoff(findSnipe(b.dataset.ebay)); dealsScreen({ sub: "snipes" }); }; });
+    view.querySelectorAll("[data-cancel]").forEach(function (b) { b.onclick = function () { state.snipes = state.snipes.filter(function (s) { return s.id !== b.dataset.cancel; }); saveSnipes(); toast("Reminder cancelled (demo)."); dealsScreen({ sub: "snipes" }); }; });
+    view.querySelectorAll("[data-remove]").forEach(function (b) { b.onclick = function () { state.snipes = state.snipes.filter(function (s) { return s.id !== b.dataset.remove; }); saveSnipes(); dealsScreen({ sub: "snipes" }); }; });
+    view.querySelectorAll("[data-sim]").forEach(function (b) { b.onclick = function () { findSnipe(b.dataset.sim).endsAt = Date.now() + 4000; saveSnipes(); toast("Demo: skipping to the last seconds. No real bid."); }; });
+    view.querySelectorAll("[data-edit]").forEach(function (b) { b.onclick = function () { var s = findSnipe(b.dataset.edit); snipeSheet(s.dealId, s); }; });
   }
 
   /* SHEETS */
@@ -430,14 +849,8 @@
     if (onMount) onMount(sh);
   }
   function closeSheet() { var r = document.getElementById("sheet-root"); if (r) r.innerHTML = ""; }
-  function watchSheet(id, existing) {
+  function snipeSheet(id, existing) {
     var d = (state._deals || []).filter(function (x) { return x.id === id; })[0]; if (!d) return;
-    if (window.CHGrowth && window.CHGrowth.on("ebay_place_max")) {   /* FEATURE_EBAY_PLACE_MAX: type your max (no suggestion), confirm, eBay opens */
-      window.CHGrowth.placeMax({ U: { openSheet: openSheet, closeSheet: closeSheet, toast: toast }, I: I, card: d.card, grade: d.grade, currentBid: d.price, max: existing ? existing.max : "", isSearch: true,
-        url: "https://www.ebay.com/sch/i.html?_nkw=" + encodeURIComponent(d.card + " " + (d.grade || "")) + "&LH_Auction=1&_sop=1",
-        onSave: function (v) { var s = existing; if (s) s.max = v; else { s = { id: "sn" + Date.now(), dealId: d.id, card: d.card, max: v, price: d.price, status: "Scheduled", endsAt: Date.now() + Math.min(d.endsMin, 45) * 60000 }; state.watches.unshift(s); } saveWatches(); } });
-      return;
-    }
     var margin = 0.15, F = { pct: 0.1325, fixed: 0.40, ship: 5 };
     function step1(keep) {
       var net = d.comp * (1 - F.pct) - F.fixed - F.ship, sug = Math.floor(net / (1 + margin));
@@ -458,10 +871,11 @@
         });
     }
     function step2(v) {
-      openSheet('<div class="eyebrow">Reminder · demo</div><h2>Your max</h2><p class="muted small" style="margin:0">' + esc(d.card) + '</p>' +
+      openSheet('<div class="eyebrow">Confirm · demo</div><h2>Confirm your exact max</h2><p class="muted small" style="margin:0">' + esc(d.card) + '</p>' +
         '<div class="card gold" style="margin-top:14px;text-align:center"><div class="small muted">Your max bid</div><div class="callword num" style="font-size:54px;margin:6px 0">' + money(v, true) + '</div><div class="small muted">You enter this on eBay yourself. CardHound reminds you before the end.</div></div>' +
-        '<label class="row" style="margin-top:14px;gap:12px;align-items:flex-start;font-size:13.5px"><input type="checkbox" id="ok" style="width:20px;height:20px;accent-color:#e3bd6a;margin-top:1px;flex:none"><span>I will enter my max of <b>' + money(v, true) + '</b> on eBay myself. CardHound never bids.</span></label>' +
-        '<div class="cta-stack"><button class="btn btn-gold" id="ebay" disabled>' + I("ext") + 'Open the listing on eBay</button><button class="btn btn-ghost" id="remind" disabled>' + I("bell") + (existing ? "Update reminder (demo)" : "Remind me before it ends (demo)") + '</button></div>' +
+        '<label class="row" style="margin-top:14px;gap:12px;align-items:flex-start;font-size:13.5px"><input type="checkbox" id="ok" style="width:20px;height:20px;accent-color:#e3bd6a;margin-top:1px;flex:none"><span>I set this max of <b>' + money(v, true) + '</b>. If it wins, I agree to buy.</span></label>' +
+        '<div class="cta-stack"><button class="btn btn-gold" id="ebay" disabled>' + I("ext") + 'Set my max on eBay</button><button class="btn btn-ghost" id="remind" disabled>' + I("bell") + (existing ? "Update reminder (demo)" : "Remind me before it ends (demo)") + '</button></div>' +
+        '<div class="card tight row between" style="margin-top:10px;opacity:.75"><span><b style="font-size:13.5px">Auto last-second bid</b><br><span class="small muted">Coming soon, pending eBay approval</span></span><input type="checkbox" disabled style="width:22px;height:22px"></div>' +
         '<button class="link-btn" id="back" style="margin-top:12px">' + I("left") + 'Change amount</button>' + disclaimer(), function () {
           var ok = document.getElementById("ok"), eb = document.getElementById("ebay"), rm = document.getElementById("remind");
           ok.onchange = function () { eb.disabled = rm.disabled = !ok.checked; };
@@ -469,10 +883,10 @@
           var save = function (placed) {
             var s = existing;
             if (s) s.max = v;
-            else { s = { id: "sn" + Date.now(), dealId: d.id, card: d.card, max: v, price: d.price, status: "Scheduled", endsAt: Date.now() + Math.min(d.endsMin, 45) * 60000 }; state.watches.unshift(s); }
-            if (placed) ebayHandoff(s); else toast("Reminder set (demo). CardHound never bids.");
-            saveWatches(); closeSheet();
-            if (parseHash().route === "deals" && parseHash().sub === "auction-watch") dealsScreen({ sub: "auction-watch" }); else location.hash = "#/deals/auction-watch";
+            else { s = { id: "sn" + Date.now(), dealId: d.id, card: d.card, max: v, price: d.price, status: "Scheduled", endsAt: Date.now() + Math.min(d.endsMin, 45) * 60000 }; state.snipes.unshift(s); }
+            if (placed) ebayHandoff(s); else toast("Reminder set (demo). Nothing will be bid.");
+            saveSnipes(); closeSheet();
+            if (parseHash().route === "deals" && parseHash().sub === "snipes") dealsScreen({ sub: "snipes" }); else location.hash = "#/deals/snipes";
           };
           eb.onclick = function () { if (ok.checked) save(true); };
           rm.onclick = function () { if (ok.checked) save(false); };
@@ -566,6 +980,15 @@
   }
   function connectSheet(id) {
     var s = srcById(id); if (!s) return;
+    if (id === "cardladder" && !isConnected(id)) {
+      openSheet('<div class="eyebrow">Sold comps only</div><h2>Connect Card Ladder</h2>' +
+        '<p class="muted small" style="margin:0">' + esc(CH_AI.job.ladder) + ' CardHound does not sell a separate price feed.</p>' +
+        '<div class="cta-stack"><button class="btn btn-gold" id="cl-go" type="button">Connect Card Ladder on this phone</button></div>' +
+        '<p class="small dim" style="text-align:center;margin-top:12px">No password is stored here.</p>' + flowEnd({ leave: true }), function () {
+          document.getElementById("cl-go").onclick = function () { state.conn.cardladder = true; saveConn(); connectSheet("cardladder"); };
+        });
+      return;
+    }
     if (s.status === "importonly") { importSheet(); return; }
     if (id === "import" && !isConnected(id)) { importSheet(); return; }
     if (isConnected(id)) {
@@ -574,7 +997,7 @@
         '<div class="row" style="justify-content:center;gap:8px;margin:8px 0 12px"><span class="chip gold">' + I("check") + esc(label) + '</span><span class="chip demo">DEMO</span></div>' +
         (state.keys[id] ? '<p class="small muted" style="text-align:center;margin:0 0 6px">Token ending \u2026' + esc(state.keys[id]) + ', stored only on this device.</p>' : "") +
         '<p class="muted small" style="text-align:center;margin:0 0 6px">Simulated. This shared demo always shows sample data with the Sample data badge.</p>' +
-        '<div class="cta-stack"><button class="btn btn-gold" id="toscan">' + I("camera") + 'Next: photograph a card</button><button class="btn btn-ghost" id="disc">' + (id === "import" ? "Clear import (demo)" : "Disconnect (demo)") + '</button></div>', function () {
+        '<div class="cta-stack"><button class="btn btn-gold" id="toscan">' + I("camera") + 'Next: photograph a card</button><button class="btn btn-ghost" id="disc">' + (id === "import" ? "Clear import (demo)" : "Disconnect (demo)") + '</button></div>' + flowEnd({ leave: true }), function () {
           document.getElementById("toscan").onclick = function () { closeSheet(); if (parseHash().route === "scan") go(); else location.hash = "#/scan"; };
           document.getElementById("disc").onclick = function () { delete state.conn[id]; delete state.keys[id]; saveConn(); closeSheet(); toast("Done (demo)."); go(); };
         });
@@ -586,7 +1009,7 @@
     var unl = unlocks.length ? '<div class="h3" style="margin:4px 0 8px">Unlocks</div><div class="row wrap" style="gap:6px;margin-bottom:6px">' + unlocks.map(function (u) { return '<span class="chip">' + esc(u.charAt(0).toUpperCase() + u.slice(1)) + '</span>'; }).join("") + '</div>' : "";
     if (s.status === "na" || s.status === "partner" || s.status === "coming" || s.status === "feed") {
       var badge = { na: "Not available yet", partner: "Pending partnership", coming: "Coming soon", feed: "Coming soon" }[s.status];
-      var extra = id === "companion" ? '<ol class="vsteps"><li><span class="sn">1</span><div><b>Sign in to Card Ladder in your own browser</b><span>As you normally do. CardHound never sees your password or cookies.</span></div></li><li><span class="sn">2</span><div><b>Open any card page</b><span>Companion recognizes which card it is.</span></div></li><li><span class="sn">3</span><div><b>Open the CardHound side panel</b><span>Our call, Gem Hunt hits, Auction Watch, add to watchlist, add to portfolio. Prices come from CardHound, never from Card Ladder.</span></div></li></ol>' : "";
+      var extra = id === "companion" ? '<ol class="vsteps"><li><span class="sn">1</span><div><b>Sign in to Card Ladder in your own browser</b><span>As you normally do. CardHound never sees your password or cookies.</span></div></li><li><span class="sn">2</span><div><b>Open any card page</b><span>Companion recognizes which card it is.</span></div></li><li><span class="sn">3</span><div><b>Open the CardHound side panel</b><span>Our call, Gem Hunt hits, Auction Watch, add to watchlist, add to portfolio. Comps come from the Card Ladder account you connect. This preview does not add a separate price feed.</span></div></li></ol>' : "";
       openSheet(top + '<h2>' + esc(s.name) + '</h2><span class="chip gold" style="margin:4px 0 10px">' + badge + '</span><p class="muted small" style="margin:10px 0 0">' + esc(s.blurb) + '</p>' + extra +
         '<div class="cta-stack"><button class="btn btn-ghost" disabled>' + I("clock") + badge + '</button><button class="btn btn-ghost" data-connect="import">' + I("upload") + 'Import my collection instead</button></div>' + safe);
       return;
@@ -594,10 +1017,10 @@
     var body = "";
     if (s.method === "apikey") body = '<div class="field"><label for="key">' + esc(s.keyLabel) + '</label><input class="input" id="key" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste your token"></div>' +
       '<p class="small muted" style="margin:8px 0 0">' + esc(s.keyHelp) + '</p><div class="note" style="margin-top:12px">' + I("key") + '<div>Demo: the token is stored only on this device (localStorage) and never sent anywhere. It\'s an API token, never your password.</div></div>';
-    else if (s.method === "oauth") body = '<ol class="vsteps"><li><span class="sn">1</span><div><b>Continue to the official eBay sign-in</b><span>You sign in on eBay\'s own page. CardHound never sees your password.</span></div></li><li><span class="sn">2</span><div><b>Approve access</b><span>Watchlist, saved searches and listings. Look only: CardHound never bids or buys.</span></div></li></ol>';
+    else if (s.method === "oauth") body = '<ol class="vsteps"><li><span class="sn">1</span><div><b>Continue to the official eBay sign-in</b><span>You sign in on eBay\'s own page. CardHound never sees your password.</span></div></li><li><span class="sn">2</span><div><b>Approve access</b><span>Watchlist, saved searches and listings. Automatic bidding is pending eBay approval.</span></div></li></ol>';
     openSheet(top + '<h2>Connect your ' + esc(s.name) + '</h2><p class="muted small" style="margin:0">' + esc(s.blurb) + '</p>' + body + safe + unl +
       '<div class="cta-stack"><button class="btn btn-gold" id="sim">' + I(s.method === "apikey" ? "key" : "plug") + (s.method === "apikey" ? "Save token (demo)" : "Continue with eBay (simulated)") + '</button></div>' +
-      '<p class="small dim" style="text-align:center;margin-top:12px">Demo: connections are simulated. Prices stay sample data.</p>', function () {
+      flowEnd({ leave: true }), function () {
         document.getElementById("sim").onclick = function () {
           if (s.method === "apikey") { var k = document.getElementById("key").value.trim(); if (k.length < 6) { toast("Paste your token first."); return; } state.keys[id] = k.slice(-4); }
           state.conn[id] = true; saveConn(); connectSheet(id);
@@ -606,32 +1029,107 @@
   }
 
   /* MORE / CONNECTIONS / TOOLS */
+  function toolLink(href, icon, title, sub) {
+    return '<a class="tool" href="' + href + '"><span class="tic">' + I(icon) + '</span><span class="tt"><b>' + title + '</b><span>' + sub + '</span></span>' + I("right") + '</a>';
+  }
+  function legalLinks() {
+    return '<div class="row" style="gap:18px;justify-content:center;margin-top:18px"><a class="link-btn" href="../legal/PRIVACY_POLICY.md">Privacy</a><a class="link-btn" href="../legal/TERMS_OF_SERVICE.md">Terms</a></div>';
+  }
   function moreScreen() {
-    var tools = [["ledger", "ledger", "Ledger", "Every buy: card, from, cost, status"], ["ledger/portfolio", "wallet", "Portfolio", "Cost basis, value, gain after fees"], ["connections", "plug", "Connections", "Import, eBay, PSA and what's next"], ["tool/fees", "calc", "Fee and net calculator", "What you keep after eBay fees"], ["tool/roi", "layers", "Grading ROI calculator", "Raw vs PSA 8, 9, 10 after fees"],
-      ["tool/variant", "list", "Is this the exact variant?", "Parallel, refractor, reprint, slab label"], ["tool/offer", "handshake", "Best Offer helper", "Suggested offer and walk-away price"], ["tool/alerts", "bell", "Price alerts", "Under-comp alerts for your watchlist"]];
-    if (window.CH_APP && window.CH_APP.moreItemsTop && window.CH_APP.moreItemsTop.length) tools = window.CH_APP.moreItemsTop.concat(tools);
-    view.innerHTML = '<div class="eyebrow">More</div><h1 class="h1" style="font-size:30px">Tools and <em>connections</em></h1>' +
-      tools.map(function (t) { return '<a class="tool" href="#/' + t[0] + '"><span class="tic">' + I(t[1]) + '</span><span class="tt"><b>' + t[2] + '</b><span>' + t[3] + '</span></span>' + I("right") + '</a>'; }).join("") +
-      '<div class="sec card gold boom-promo"><div class="row between"><span class="h3" style="color:var(--gold2)">BOOM! New high comps</span><span class="chip demo">SAMPLE</span></div><p class="small muted" style="margin:8px 0 12px">An alert when a card\'s newest sale is its all-time or 90-day high for that exact variant and grade.</p><div style="display:grid;gap:8px"><button class="btn btn-gold btn-sm" id="boom-pv" style="width:100%">' + I("spark") + 'Preview BOOM alert</button><button class="btn btn-ghost btn-sm" id="boom-st" style="width:100%">' + I("bell") + 'Alert settings</button></div><a class="link-btn" href="#/markets/highs" style="margin-top:12px">New Highs list ' + I("right") + '</a></div>' +
-      '<div class="sec card"><div class="h3" style="margin-bottom:8px">About this demo</div><p class="small muted" style="margin:0">Data source: <b style="color:var(--text)">' + esc(D.name) + '</b>. Every price, count, trend and odds value is invented sample data. Nothing is bought, bid, offered or sent.</p></div>' + footer();
+    var yours = [["#/daily", "report", "Daily report", "Movers and gems, tailored by you"], ["#/ask", "mic", "Ask", "Hunts and questions. Not on Home."], ["#/ledger", "wallet", "Portfolio", "Buys, cost, and value on this phone"], ["#/deals/watch", "eye", "Watchlist", "Cards and listings you are watching"], ["#/deals/snipes", "target", "Auction Watch", "Reminders. You set the max."], ["#/deals", "deals", "For sale", "Asking prices versus sample comps"], ["#/lists/gems", "gem", "Gem Hunt", "Hard-to-find and mislabeled listings"]];
+    var tools = [["#/lists/movers", "markets", "Lists", "Movers, highs, picks, searched, gems"], ["#/tool/alerts", "bell", "Alerts", "Under-comp and new-high alerts"], ["#/settings", "sliders", "Settings", "Card Ladder, import, eBay, PSA"], ["#/tool/fees", "calc", "Fee and net", "What you keep after eBay fees"], ["#/tool/roi", "layers", "Grading ROI", "Raw versus graded after fees"], ["#/tool/variant", "list", "Exact variant check", "Parallel, refractor, reprint, slab"], ["#/tool/offer", "handshake", "Best Offer helper", "Suggested offer and walk-away"]];
+    if (window.CH_APP && window.CH_APP.moreItemsTop && window.CH_APP.moreItemsTop.length) {
+      yours = window.CH_APP.moreItemsTop.map(function (t) { return ["#/" + t[0], t[1], t[2], t[3]]; }).concat(yours);
+    }
+    view.innerHTML = '<div class="eyebrow">More</div><h1 class="h1" style="font-size:28px">Everything else</h1>' +
+      '<p class="lead">Check stays on the first tab. These are one thumb away.</p>' +
+      '<h2 class="h3">Your stuff</h2>' + yours.map(function (t) { return toolLink(t[0], t[1], t[2], t[3]); }).join("") +
+      '<h2 class="h3" style="margin-top:18px">Tools</h2>' + tools.map(function (t) { return toolLink(t[0], t[1], t[2], t[3]); }).join("") +
+      '<div class="card" style="margin-top:14px"><div class="row between"><span class="h3">New high alerts</span><span class="chip">SAMPLE</span></div><p class="small muted">An alert when a sale is an all-time or 90-day high for that exact card.</p><div class="cta-stack"><button class="btn btn-ghost" id="boom-pv" type="button">Preview alert</button><button class="btn btn-ghost" id="boom-st" type="button">Alert settings</button></div></div>' +
+      '<div class="sec card"><div class="h3" style="margin-bottom:8px">About this demo</div><p class="small muted" style="margin:0">Data source: <b style="color:var(--text)">' + esc(D.name) + '</b>. Sold prices here are invented sample data standing in for Card Ladder. Your AI would read them for a deal call and a chart, and hunt the open market for buys. Nothing is bought, bid, or offered. A hunt leaves this phone only after you agree.</p></div>' +
+      legalLinks() + footer();
     var bp = document.getElementById("boom-pv"); if (bp && BOOM) bp.onclick = function () { BOOM.preview(); };
     var bs = document.getElementById("boom-st"); if (bs && BOOM) bs.onclick = function () { BOOM.settingsSheet(); };
+  }
+  function dailyScreen() {
+    var prefs = CH_DAILY.normalize(LS.get("daily", CH_DAILY.defaults));
+    var cats = (state.meta && state.meta.categories) || [];
+    function toggleCat(name) {
+      var i = prefs.categories.indexOf(name);
+      if (i > -1) prefs.categories.splice(i, 1); else prefs.categories.push(name);
+      LS.set("daily", prefs); dailyScreen();
+    }
+    Promise.all([
+      D.getMovers({ view: "overall" }),
+      D.getNewHighs({ view: "overall" }),
+      D.getGems(),
+      D.getDeals(),
+      D.getSavedSearches ? D.getSavedSearches() : Promise.resolve([])
+    ]).then(function (res) {
+      var watchNames = res[3].filter(function (d) { return d.watch; }).map(function (d) { return d.card; });
+      var report = CH_DAILY.build({ movers: res[0], highs: res[1], gems: res[2], hunts: res[4], watchNames: watchNames }, prefs);
+      function rows(list, map) {
+        if (!list.length) return '<div class="empty">Nothing in this slice. Change categories or focus.</div>';
+        return '<div class="card">' + list.slice(0, 8).map(map).join("") + '</div>';
+      }
+      function showSection(key, list) {
+        if (prefs.sections[key] === false) return false;
+        if (list.length) return true;
+        if (prefs.focus === "all" || prefs.focus === "watchlist") return true;
+        return prefs.focus === key;
+      }
+      var body = "";
+      if (showSection("movers", report.movers)) body += '<h2 class="h3" style="margin-top:16px">Movers</h2>' + rows(report.movers, function (r) {
+        return '<div class="lrow daily-row mover-row"><div class="nm"><b>' + esc(r.card) + '</b><span>' + esc(r.grade || "") + '</span></div><span class="num ' + (r.pct >= 0 ? "pill-up" : "pill-down") + '">' + pct(r.pct) + '</span></div>';
+      }) + '<a class="btn btn-ghost" href="#/lists/movers" style="margin-top:10px">Open Movers</a>';
+      if (showSection("highs", report.highs)) body += '<h2 class="h3" style="margin-top:16px">New highs</h2>' + rows(report.highs, function (h) {
+        return '<div class="lrow daily-row"><div class="nm"><b>' + esc(h.card || h.title || "New high") + '</b><span>SAMPLE</span></div></div>';
+      });
+      if (showSection("gems", report.gems)) body += '<h2 class="h3" style="margin-top:16px">Gem Hunt</h2>' + rows(report.gems, function (g) {
+        return '<div class="lrow daily-row"><div class="nm"><b>' + esc(g.card) + '</b><span>' + esc(g.note || g.grade || "") + '</span></div></div>';
+      });
+      if (prefs.sections.hunts !== false) body += '<h2 class="h3" style="margin-top:16px">Saved hunts</h2>' + rows(report.hunts, function (h) {
+        return '<div class="lrow daily-row"><div class="nm"><b>' + esc(h.q || h.name || "Hunt") + '</b></div></div>';
+      });
+      view.innerHTML = '<div class="eyebrow">Daily report</div><h1 class="h1" style="font-size:28px">Your daily report</h1>' +
+        '<p class="lead">Movers first, then the rest of the brief.</p>' +
+        '<span class="chip">SAMPLE</span>' + gate("comps") +
+        '<div class="card daily-tailor"><h2 class="h3">Tailor this brief</h2><p class="daily-now" id="daily-now">' + esc(CH_DAILY.label(prefs)) + '</p>' +
+        '<h2 class="h3">Categories</h2><p class="small muted">Leave all off to include every category.</p>' +
+        '<div class="scopes daily-cats" id="daily-cats">' + cats.map(function (c) { return '<button type="button" data-cat="' + esc(c) + '" class="' + (prefs.categories.indexOf(c) > -1 ? "on" : "") + '">' + esc(c) + '</button>'; }).join("") + '</div>' +
+        '<h2 class="h3">Focus</h2><div class="daily-focus" id="daily-focus" role="group" aria-label="Brief focus">' +
+        [["all", "All"], ["watchlist", "Watchlist"], ["gems", "Gems"], ["movers", "Movers"]].map(function (f) { return '<button type="button" data-f="' + f[0] + '" class="' + (prefs.focus === f[0] ? "on" : "") + '">' + f[1] + '</button>'; }).join("") + '</div>' +
+        '<h2 class="h3">Include</h2>' +
+        [["movers", "Movers"], ["highs", "New highs"], ["gems", "Gem Hunt"], ["hunts", "Saved hunts"]].map(function (s) {
+          var on = prefs.sections[s[0]] !== false;
+          return '<button type="button" class="tool daily-toggle" data-sec="' + s[0] + '" aria-pressed="' + (on ? "true" : "false") + '"><span class="tt"><b>' + s[1] + '</b><span>' + (on ? "On" : "Off") + '</span></span></button>';
+        }).join("") + '</div>' + body + microNote() + flowEnd() + footer();
+      view.querySelectorAll("#daily-cats button").forEach(function (b) { b.onclick = function () { toggleCat(b.dataset.cat); }; });
+      view.querySelectorAll("#daily-focus button").forEach(function (b) { b.onclick = function () { prefs.focus = b.dataset.f; LS.set("daily", prefs); dailyScreen(); }; });
+      view.querySelectorAll("[data-sec]").forEach(function (b) { b.onclick = function () { prefs.sections[b.dataset.sec] = !prefs.sections[b.dataset.sec]; LS.set("daily", prefs); dailyScreen(); }; });
+    });
   }
   function statusPill(s) {
     if (isConnected(s.id)) return '<span class="status st-on">' + (s.id === "import" ? "Imported (demo)" : "Connected (demo)") + '</span>';
     return { available: '<span class="status st-off">Not connected</span>', coming: '<span class="status st-soon">Coming soon</span>', partner: '<span class="status st-soon">Pending partnership</span>', na: '<span class="status st-off">Not available yet</span>', importonly: '<span class="status st-soon">Import only</span>' }[s.status] || "";
   }
   function connectionsScreen() {
-    var groups = [["Connect now", ["import", "ebay", "psa"]], ["On the way", ["companion", "cardladder"]], ["Import only or not available yet", ["collx", "marketmovers", "pricecharting", "cardhedge", "tcgplayer", "130point"]]];
-    view.innerHTML = '<div class="eyebrow">Connections</div><h1 class="h1" style="font-size:30px">Bring your <em>own</em> accounts</h1>' +
-      '<p class="lead">Import your collection, sign in with eBay, or paste your own PSA token. Never a password, never cookies, never scraping.</p>' +
+    var settings = parseHash().route === "settings";
+    var groups = [["Connect now", ["import", "ebay", "psa", "cardladder"]], ["On the way", ["companion"]], ["Import only or not available yet", ["collx", "marketmovers", "pricecharting", "cardhedge", "tcgplayer", "130point"]]];
+    var aiNow = CH_AI.normalize(state.ai);
+    var aiWho = aiNow.provider ? CH_AI.byId(aiNow.provider) : null;
+    view.innerHTML = '<div class="eyebrow">' + (settings ? "Settings" : "Connections") + '</div><h1 class="h1" style="font-size:28px">' + (settings ? "Settings" : "Bring your own accounts") + '</h1>' +
+      '<p class="lead">Connect accounts you already have. Never a password.</p>' +
+      '<button type="button" class="tool" id="ai-settings"><span class="srcmono' + (aiWho ? " on" : "") + '">AI</span><span class="tt"><b>Your AI</b><span>' + esc(aiWho ? aiWho.name + (aiSecret() ? " · …" + CH_AI.maskKey(aiSecret()) : " · add your key") : CH_AI.job.aiShort) + '</span></span></button>' +
       groups.map(function (g) {
         return '<div class="group-h"><h3 class="h3">' + g[0] + '</h3></div>' + g[1].map(function (id) {
           var s = srcById(id), on = isConnected(id);
           return '<button class="tool" data-connect="' + s.id + '"><span class="srcmono ' + (on ? "on" : "") + '">' + esc(s.mono) + '</span><span class="tt"><b>' + esc(s.name) + '</b><span>' + esc(s.how) + '</span></span>' + statusPill(s) + '</button>';
         }).join("");
       }).join("") +
-      '<div class="note" style="margin-top:16px">' + I("shield") + '<div>This shared demo always runs on sample data, connected or not. Connections are simulated and stored only on this device.</div></div>' + footer();
+      flowEnd({ leave: true }) + legalLinks() + footer();
+    var aiBtn = document.getElementById("ai-settings");
+    if (aiBtn) aiBtn.onclick = aiSheet;
   }
   function toolScreen(p) {
     var t = p.sub, back = '<a class="link-btn" href="#/more">' + I("left") + 'More</a>';
@@ -676,34 +1174,40 @@
   }
 
   var BOOM = null, VOICE = null;
-  var ROUTES = { scan: scanScreen, analyze: analyzeScreen, match: matchScreen, report: reportScreen, markets: marketsScreen, deals: dealsScreen, more: moreScreen, connections: connectionsScreen, tool: toolScreen };
+  var ROUTES = { scan: scanScreen, analyze: analyzeScreen, match: matchScreen, report: reportScreen, unpriced: unpricedScreen, markets: marketsScreen, lists: marketsScreen, deals: dealsScreen, more: moreScreen, connections: connectionsScreen, settings: connectionsScreen, tool: toolScreen, daily: dailyScreen };
   BOOM = window.CH_BOOM ? window.CH_BOOM({ D: D, I: I, esc: esc, money: money, toast: toast, openSheet: openSheet, closeSheet: closeSheet, parseHash: parseHash }) : null;
   window.CH_BOOM_UI = BOOM;
   if (window.CH_LEDGER) ROUTES.ledger = window.CH_LEDGER({ view: view, D: D, I: I, esc: esc, money: money, pct: pct, toast: toast, footer: footer, openSheet: openSheet, closeSheet: closeSheet, isConnected: isConnected, gate: gate, parseHash: parseHash, go: go });
 
   /* Hooks for the voice / prompt assistant (js/voice.js). Add-only: other screens keep working without it. */
   window.CH_APP = { state: state, LS: LS, D: D, I: I, esc: esc, money: money, pct: pct, toast: toast, footer: footer, openSheet: openSheet, closeSheet: closeSheet, parseHash: parseHash, go: go, view: view, gate: gate,
-    addWatch: function (s) { state.watches.unshift(s); saveWatches(); },
-    addSnipe: function (s) { state.watches.unshift(s); saveWatches(); },   /* legacy alias (pre-rename callers) */
+    addSnipe: function (s) { state.snipes.unshift(s); saveSnipes(); },
     setScope: function (list, v, val) { if (state.scopes[list]) state.scopes[list] = { view: v || "overall", value: val || null }; },
     setMoversDir: function (d) { state.moversDir = d === "down" ? "down" : "up"; },
     lastCard: function () { return LS.get("lastCard", null); }, setLastCard: function (c) { LS.set("lastCard", c); },
+    submitHunt: submitHunt,
     alertSheet: alertSheet, boom: BOOM, ledger: ROUTES.ledger,
     /* Add-only hooks for wrappers (the native app in ../app): extra routes, extra More items, a photo from a native camera. */
     addRoute: function (name, fn) { if (!ROUTES[name]) ROUTES[name] = fn; },
     setRoute: function (name, fn) { ROUTES[name] = fn; },   /* replace a screen (the private live server uses this for real-price search + report) */
     rerender: function () { go(); },
     moreItemsTop: [],
-    setPhoto: function (url) { if (state.photo && state.photo.indexOf("blob:") === 0) URL.revokeObjectURL(state.photo); state.photo = url; if (parseHash().route === "scan") scanScreen(); } };
+    setPhoto: function (url) {
+      photoGate(function () {
+        if (state.photo && state.photo.indexOf("blob:") === 0) URL.revokeObjectURL(state.photo);
+        state.photo = url;
+        if (parseHash().route === "scan") scanScreen();
+      });
+    } };
   if (window.CH_VOICE) { VOICE = window.CH_VOICE(window.CH_APP); ROUTES.ask = VOICE.screen; window.CH_VOICE_UI = VOICE; }
   /* Wrappers (e.g. the native app) can queue functions in window.CH_APP_PLUGINS before app.js loads; each gets CH_APP once. */
   (window.CH_APP_PLUGINS || []).forEach(function (fn) { try { fn(window.CH_APP); } catch (e) { if (window.console) console.error(e); } });
 
   function bindGlobal(root) {
     root.addEventListener("click", function (e) {
-      var b = e.target.closest("[data-connect],[data-aw],[data-offer],[data-alert],[data-toast]"); if (!b || !root.contains(b)) return;
+      var b = e.target.closest("[data-connect],[data-snipe],[data-offer],[data-alert],[data-toast]"); if (!b || !root.contains(b)) return;
       if (b.dataset.connect) { e.preventDefault(); connectSheet(b.dataset.connect); }
-      else if (b.dataset.aw) watchSheet(b.dataset.aw);
+      else if (b.dataset.snipe) snipeSheet(b.dataset.snipe);
       else if (b.dataset.offer) offerSheet(b.dataset.offer);
       else if (b.dataset.alert) alertSheet();
       else if (b.dataset.toast) toast(b.dataset.toast);
@@ -711,5 +1215,5 @@
   }
   bindGlobal(view);
   window.addEventListener("hashchange", go);
-  D.meta().then(function (m) { state.meta = m; go(); });
+  D.meta().then(function (m) { state.meta = m; go(); showLegal(); });
 })();

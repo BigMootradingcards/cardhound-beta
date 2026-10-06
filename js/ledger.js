@@ -5,14 +5,15 @@ window.CH_LEDGER = function (U) {
   "use strict";
   var view = U.view, D = U.D, I = U.I, esc = U.esc, money = U.money;
   var ST = ["bought", "graded", "listed", "sold"], STL = { bought: "Bought", graded: "Graded", listed: "Listed", sold: "Sold" };
-  var FROM = ["eBay · Buy It Now", "eBay · Auction", "eBay · Best Offer", "eBay · Gem Hunt", "Whatnot", "Card show", "Local shop", "Facebook Marketplace", "COMC", "Other"];
+  var FROM = ["eBay · Buy It Now", "eBay · Auction", "eBay · Best Offer", "eBay · Auction Watch win", "eBay · Gem Hunt", "Whatnot", "Card show", "Local shop", "Facebook Marketplace", "COMC", "Other"];
   var ui = { filter: "all", open: null, sub: "ledger" };
   var m2 = function (v) { return money(v, true); };
   var num = function (v) { var n = parseFloat(String(v == null ? "" : v).replace(/[^0-9.\-]/g, "")); return isNaN(n) ? 0 : n; };
   var today = function () { var d = new Date(); return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2); };
   function fmtDate(s) { var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s || ""); if (!m) return esc(s || ""); return ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][+m[2] - 1] + " " + (+m[3]) + ", " + m[1]; }
   function stChip(st) { return '<span class="lst lst-' + st + '">' + STL[st] + '</span>'; }
-  function fromCell(f) { var p = String(f || "").split(" · "); return '<b>' + esc(p[0]) + '</b>' + (p[1] ? '<span>' + esc(p[1]) + '</span>' : ""); }
+  function showFrom(f) { return String(f || "").replace(/Sniper/gi, "Auction Watch"); }
+  function fromCell(f) { var p = showFrom(f).split(" · "); return '<b>' + esc(p[0]) + '</b>' + (p[1] ? '<span>' + esc(p[1]) + '</span>' : ""); }
   function orderCell(o, sample) {
     if (/^https:\/\//i.test(o || "")) return '<a class="link-btn" href="' + esc(o) + '" target="_blank" rel="noopener noreferrer">Open order ' + I("ext") + '</a>';
     if (!o) return '<span class="dim">None</span>';
@@ -23,8 +24,8 @@ window.CH_LEDGER = function (U) {
   /* ---------- screen ---------- */
   function screen(p) {
     ui.sub = p && p.sub === "portfolio" ? "portfolio" : "ledger";
-    var head = '<div class="eyebrow">Ledger · on this phone</div><h1 class="h1" style="font-size:30px">' + (ui.sub === "portfolio" ? "Your <em>portfolio</em>" : "Your <em>ledger</em>") + '</h1>' +
-      '<div class="subtabs">' + [["ledger", "Ledger"], ["portfolio", "Portfolio"]].map(function (t) { return '<button data-lsub="' + t[0] + '" class="' + (ui.sub === t[0] ? "on" : "") + '">' + t[1] + '</button>'; }).join("") + '</div>';
+    var head = '<div class="eyebrow">Portfolio · on this phone</div><h1 class="h1" style="font-size:30px">Your <em>portfolio</em></h1>' +
+      '<div class="subtabs scroll-tabs">' + [["ledger", "Buys"], ["portfolio", "Value"]].map(function (t) { return '<button type="button" data-lsub="' + t[0] + '" class="' + (ui.sub === t[0] ? "on" : "") + '">' + t[1] + '</button>'; }).join("") + '</div>';
     (ui.sub === "portfolio" ? D.getPortfolio().then(function (pf) { return portfolioHTML(pf); }) : D.getLedger().then(function (rows) { return ledgerHTML(rows); })).then(function (body) {
       view.innerHTML = head + body + U.footer();
       view.querySelectorAll("[data-lsub]").forEach(function (b) { b.onclick = function () { location.hash = b.dataset.lsub === "portfolio" ? "#/ledger/portfolio" : "#/ledger"; }; });
@@ -36,7 +37,7 @@ window.CH_LEDGER = function (U) {
     return '<div class="card gold ebay-hero"><div class="row" style="gap:12px;align-items:flex-start"><span class="srcmono">eB</span><div class="t"><b>Connect eBay to auto-track buys</b><span>Official eBay sign-in. CardHound never sees your eBay password. Each purchase lands here with seller, price, shipping, tax and the order link.</span></div></div>' +
       '<button class="btn btn-gold btn-sm" data-connect="ebay" style="width:100%;margin-top:12px">' + I("plug") + 'Connect eBay</button></div>';
   }
-  function autoNote() { return '<div class="note" style="margin-top:10px">' + I("spark") + '<div><b style="color:var(--text)">Imports from eBay once connected:</b> your purchases, including auctions you won bidding yourself. Add anything else below.</div></div>'; }
+  function autoNote() { return '<div class="note" style="margin-top:10px">' + I("spark") + '<div><b style="color:var(--text)">Logs automatically:</b> Auction Watch wins, Buy and Gem Hunt purchases. Add anything else below.</div></div>'; }
   function ledgerHTML(rows) {
     var cnt = { all: rows.length }; ST.forEach(function (s) { cnt[s] = rows.filter(function (r) { return r.status === s; }).length; });
     var spent = rows.reduce(function (s, r) { return s + r.cost; }, 0), soldSum = rows.filter(function (r) { return r.status === "sold"; }).reduce(function (s, r) { return s + (+r.soldFor || 0); }, 0);
@@ -76,9 +77,10 @@ window.CH_LEDGER = function (U) {
   }
   function signed(v) { return '<em class="sg ' + (v >= 0 ? "pill-up" : "pill-down") + '">' + (v >= 0 ? "+" : "") + money(v) + '</em>'; }
   function portfolioHTML(pf) {
-    if (!pf.count && !pf.soldCount) return '<div class="card" style="text-align:center;padding:26px 18px"><b>No cards yet</b><p class="muted small">Add buys in the Ledger and they show up here.</p><a class="btn btn-gold btn-sm" href="#/ledger">Open Ledger</a></div>';
+    if (!pf.count && !pf.soldCount) return '<div class="card" style="text-align:center;padding:26px 18px"><b>No cards yet</b><p class="muted small">Add buys in Portfolio and they show up here.</p><a class="btn btn-gold btn-sm" href="#/ledger">Open Portfolio</a></div>';
     return '<div class="card gold pf-hero"><div class="row between"><span class="h3" style="color:var(--gold2)">Current value</span><span class="chip demo">SAMPLE</span></div>' +
       '<div class="callword num" style="font-size:44px;margin:6px 0 2px">' + money(pf.value) + '</div>' +
+      '<p class="micro-note">SAMPLE · Not advice.</p>' +
       '<div class="small" style="font-weight:700">' + signed(pf.unrealized) + ' <span class="' + (pf.unrealized >= 0 ? "pill-up" : "pill-down") + '">(' + (pf.unrealizedPct >= 0 ? "+" : "\u2212") + Math.abs(pf.unrealizedPct).toFixed(1) + '%)</span> <span class="muted" style="font-weight:600">after fees, if sold today</span></div>' +
       '<div class="chart-wrap" style="margin-top:12px">' + pfChart(pf.series, pf.costSeries) + '</div>' +
       '<div class="row" style="gap:16px;margin-top:4px"><span class="small muted row" style="gap:6px"><i class="lg lg-v"></i>Value (sample)</span><span class="small muted row" style="gap:6px"><i class="lg lg-c"></i>Cost basis</span></div></div>' +
@@ -86,7 +88,7 @@ window.CH_LEDGER = function (U) {
       '<div class="kpi"><span>Gain / loss after fees</span><b class="num">' + signed(pf.unrealized) + '</b><small>unrealized</small></div><div class="kpi"><span>Realized</span><b class="num">' + signed(pf.realized) + '</b><small>' + pf.soldCount + ' sold, after fees</small></div></div>' +
       '<p class="small dim" style="margin:10px 2px 0">After fees = ' + esc(pf.fees.label) + '. Card show and other non-eBay sales count no fees.' + (pf.unvalued ? " " + pf.unvalued + " card" + (pf.unvalued === 1 ? " has" : "s have") + " no sample value yet and count at cost." : "") + '</p>' +
       U.gate("comps") +
-      '<div class="sec"><div class="sec-head"><h3 class="h3">Holdings</h3><a class="link-btn" href="#/ledger">Ledger ' + I("right") + '</a></div><div class="card">' +
+      '<div class="sec"><div class="sec-head"><h3 class="h3">Holdings</h3><a class="link-btn" href="#/ledger">Buys ' + I("right") + '</a></div><div class="card">' +
       pf.holdings.map(function (h) { return '<div class="lrow" style="grid-template-columns:1fr auto"><div class="nm"><b>' + esc(h.card) + '</b><span>' + (h.grade ? esc(h.grade) + " · " : "") + STL[h.status] + ' · cost ' + money(h.cost) + (h.valued ? "" : " · at cost") + '</span></div><div class="rt" style="text-align:right;display:block"><b class="num" style="display:block;font-size:14.5px">' + money(h.value) + '</b><span class="small num" style="font-weight:700">' + signed(h.gain) + '</span></div></div>'; }).join("") +
       '</div></div>';
   }
@@ -105,9 +107,9 @@ window.CH_LEDGER = function (U) {
     view.querySelectorAll("[data-ladd]").forEach(function (b) { b.onclick = function () { ({ manual: function () { formSheet({}, {}); }, csv: csvSheet, receipt: receiptSheet })[b.dataset.ladd](); }; });
     var ex = document.getElementById("lexport"); if (ex) ex.onclick = exportCSV;
     var rs = document.getElementById("lreset"); if (rs) rs.onclick = function () {
-      U.openSheet('<div class="eyebrow">Reset · confirm</div><h2>Reset to the sample rows?</h2><p class="muted small">This removes rows you added on this phone and restores the sample rows.</p><div class="cta-stack"><button class="btn btn-gold" id="rsok">Reset ledger</button><button class="btn btn-ghost" id="rsno">Keep my rows</button></div>', function () {
+      U.openSheet('<div class="eyebrow">Reset · confirm</div><h2>Reset to the sample rows?</h2><p class="muted small">This removes rows you added on this phone and restores the sample rows.</p><div class="cta-stack"><button class="btn btn-gold" id="rsok">Reset portfolio sample</button><button class="btn btn-ghost" id="rsno">Keep my rows</button></div>', function () {
         document.getElementById("rsno").onclick = U.closeSheet;
-        document.getElementById("rsok").onclick = function () { D.resetLedger().then(function () { U.closeSheet(); ui.open = null; U.toast("Ledger reset to sample rows."); rerender(); }); };
+        document.getElementById("rsok").onclick = function () { D.resetLedger().then(function () { U.closeSheet(); ui.open = null; U.toast("Portfolio reset to sample rows."); rerender(); }); };
       });
     };
   }
@@ -117,7 +119,7 @@ window.CH_LEDGER = function (U) {
   function formSheet(r, opts) {
     r = r || {}; opts = opts || {};
     var from = r.from || "eBay · Buy It Now", st = r.status || "bought";
-    U.openSheet('<div class="eyebrow">' + esc(opts.eyebrow || "Ledger · manual add") + '</div><h2>' + esc(opts.title || "Add a buy") + '</h2>' +
+    U.openSheet('<div class="eyebrow">' + esc(opts.eyebrow || "Portfolio · manual add") + '</div><h2>' + esc(opts.title || "Add a buy") + '</h2>' +
       (opts.note ? '<div class="note" style="margin-top:8px">' + I("spark") + '<div>' + opts.note + '</div></div>' : '<p class="muted small" style="margin:0">Saved on this phone only, after you review it.</p>') +
       (opts.photo ? '<img src="' + opts.photo + '" alt="Your receipt photo" style="width:72px;height:72px;object-fit:cover;border-radius:12px;border:1px solid var(--gold-line);margin-top:12px">' : "") +
       inp("lf-card", "Card", r.card, { ph: "Year, set, #, player, variant" }) +
@@ -147,12 +149,12 @@ window.CH_LEDGER = function (U) {
       : '<div class="card" style="margin-top:12px">' + rows.slice(0, 6).map(function (x) { return '<div class="lrow" style="grid-template-columns:1fr auto"><div class="nm"><b>' + esc(x.card) + '</b><span>' + esc(x.from) + ' · ' + STL[x.status] + ' · ' + fmtDate(x.date) + '</span></div><span class="num" style="font-weight:700">' + m2(num(x.price) + num(x.shipping) + num(x.tax)) + '</span></div>'; }).join("") + (rows.length > 6 ? '<div class="small dim" style="padding-top:10px">+ ' + (rows.length - 6) + ' more</div>' : "") + '</div>';
     U.openSheet('<div class="eyebrow">Confirm · before saving</div><h2>' + (one ? "Save this buy?" : "Save " + rows.length + " rows?") + '</h2><p class="muted small" style="margin:0">Check every field. Saved on this phone only.</p>' + body +
       '<div class="card gold" style="margin-top:12px;text-align:center"><div class="small muted">' + (one ? "Cost (price + shipping + tax)" : "Total cost") + '</div><div class="callword num" style="font-size:40px;margin:4px 0 0">' + m2(total) + '</div></div>' +
-      '<div class="cta-stack"><button class="btn btn-gold" id="lv-save">' + I("check") + (one ? "Save to ledger" : "Save " + rows.length + " rows") + '</button><button class="btn btn-ghost" id="lv-back">' + I("left") + 'Edit</button></div>', function () {
+      '<div class="cta-stack"><button class="btn btn-gold" id="lv-save">' + I("check") + (one ? "Save to portfolio" : "Save " + rows.length + " rows") + '</button><button class="btn btn-ghost" id="lv-back">' + I("left") + 'Edit</button></div>', function () {
         document.getElementById("lv-back").onclick = back;
         document.getElementById("lv-save").onclick = function () {
           D.addLedgerRow(one ? rows[0] : rows).then(function () {
             U.closeSheet(); ui.filter = "all"; ui.open = null;
-            U.toast(one ? "Saved to your Ledger (on this phone)." : rows.length + " rows saved to your Ledger (on this phone).");
+            U.toast(one ? "Saved to your Portfolio (on this phone)." : rows.length + " rows saved to your Portfolio (on this phone).");
             if (U.parseHash().route === "ledger" && ui.sub === "ledger") rerender(); else location.hash = "#/ledger";
           });
         };
@@ -196,7 +198,7 @@ window.CH_LEDGER = function (U) {
     return { rows: out, skipped: skipped, map: hdr.map(function (h, i) { return { col: String(h).trim() || "(blank)", to: map[i] }; }) };
   }
   function csvSheet(prefill) {
-    U.openSheet('<div class="eyebrow">Ledger · CSV import</div><h2>Import buys from a CSV</h2><p class="muted small" style="margin:0">eBay purchase history, the Card Flip Ledger, or any sheet with card and price columns. Read on this phone; nothing is uploaded.</p>' +
+    U.openSheet('<div class="eyebrow">Portfolio · CSV import</div><h2>Import buys from a CSV</h2><p class="muted small" style="margin:0">eBay purchase history, a flip spreadsheet, or any sheet with card and price columns. Read on this phone; nothing is uploaded.</p>' +
       '<input class="file-input" id="lc-file" type="file" accept=".csv,text/csv"><label class="btn btn-ghost" for="lc-file" style="margin-top:14px">' + I("upload") + 'Choose a CSV file</label>' +
       '<div class="field"><label for="lc-text">Or paste CSV</label><textarea class="input" id="lc-text" rows="5" style="height:auto;padding:12px 14px;line-height:1.4;font-size:12.5px;resize:vertical" placeholder="Item title,Seller,Item price,Shipping,Sales tax,Order date,…">' + esc(prefill || "") + '</textarea></div>' +
       '<button class="link-btn" id="lc-sample" style="margin-top:10px">' + I("spark") + 'Use a sample CSV</button>' +
@@ -225,7 +227,7 @@ window.CH_LEDGER = function (U) {
   /* ---------- Receipt photo ---------- */
   function receiptSheet() {
     var photo = null;
-    U.openSheet('<div class="eyebrow">Ledger · receipt photo</div><h2>Snap a receipt or order page</h2><p class="muted small" style="margin:0">A screenshot of the eBay order page works too. The photo stays on this phone.</p>' +
+    U.openSheet('<div class="eyebrow">Portfolio · receipt photo</div><h2>Snap a receipt or order page</h2><p class="muted small" style="margin:0">A screenshot of the eBay order page works too. The photo stays on this phone.</p>' +
       '<div class="rc-frame" id="rc-frame"><div class="scan-empty"><div class="ring">' + I("receipt") + '</div><b>Receipt or order screenshot</b>Card, seller, price, shipping, tax, date</div></div>' +
       '<input class="file-input" id="rc-file" type="file" accept="image/*" capture="environment">' +
       '<div class="cta-stack"><label class="btn btn-ghost" for="rc-file">' + I("camera") + 'Take or choose a photo</label><button class="btn btn-gold" id="rc-read">' + I("spark") + 'Read it (demo)</button></div>' +
@@ -242,7 +244,7 @@ window.CH_LEDGER = function (U) {
   /* ---------- Mark sold ---------- */
   function soldSheet(r) {
     if (!r) return;
-    U.openSheet('<div class="eyebrow">Ledger · mark sold</div><h2>' + esc(r.card) + '</h2><p class="muted small" style="margin:0">Cost ' + m2(r.cost) + '</p>' +
+    U.openSheet('<div class="eyebrow">Portfolio · mark sold</div><h2>' + esc(r.card) + '</h2><p class="muted small" style="margin:0">Cost ' + m2(r.cost) + '</p>' +
       '<div class="grid2">' + inp("ls-for", "Sold for", r.soldFor || r.listPrice || "", { num: 1, ph: "0.00" }) + '<div class="field"><label for="ls-via">Sold on</label><select class="input" id="ls-via">' + ["eBay", "Whatnot", "Card show", "Facebook Marketplace", "Other"].map(function (x) { return "<option>" + x + "</option>"; }).join("") + '</select></div></div>' +
       inp("ls-date", "Sold date", today(), { type: "date" }) +
       '<div class="cta-stack"><button class="btn btn-gold" id="ls-rev">Review</button></div>', function () {
@@ -267,11 +269,11 @@ window.CH_LEDGER = function (U) {
       var out = [["Card", "From", "Cost", "Status", "Seller", "Price", "Shipping", "Tax", "Date", "Order link", "Grade", "Sold for", "Sample row"]].concat(rows.map(function (r) {
         return [r.card, r.from, r.cost.toFixed(2), STL[r.status], r.seller, (+r.price).toFixed(2), (+r.shipping).toFixed(2), (+r.tax).toFixed(2), r.date, r.order, r.grade, r.soldFor != null ? (+r.soldFor).toFixed(2) : "", r.sample ? "yes" : "no"];
       })).map(function (r) { return r.map(q).join(","); }).join("\n");
-      var a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([out], { type: "text/csv" })); a.download = "cardhound-ledger.csv";
+      var a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([out], { type: "text/csv" })); a.download = "cardhound-portfolio.csv";
       document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
-      U.toast("Exported " + rows.length + " rows to cardhound-ledger.csv (on this phone).");
+      U.toast("Exported " + rows.length + " rows to cardhound-portfolio.csv (on this phone).");
     });
   }
-  screen.addPrefilled = function (r, opts) { formSheet(r || {}, opts || { eyebrow: "Ledger · from voice", title: "Review this buy", note: "Filled from what you said. Check every field before saving." }); };
+  screen.addPrefilled = function (r, opts) { formSheet(r || {}, opts || { eyebrow: "Portfolio · from voice", title: "Review this buy", note: "Filled from what you said. Check every field before saving." }); };
   return screen;
 };

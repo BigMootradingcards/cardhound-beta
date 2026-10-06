@@ -5,7 +5,7 @@ window.CH_VOICE = function (U) {
   var V = window.CH_VOICE_PARSE, D = U.D, I = U.I, esc = U.esc, money = U.money, toast = U.toast;
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   var st = { msgs: [], answers: {}, pendingText: null, lastHunt: null, listings: null, rec: null, listening: false, seq: 0, store: {} };
-  var EXAMPLES = ["Raw Prizm silver rookies under $400", "Find a Wemby chrome refractor rookie under $150", "What are the top movers in Pokemon today", "Should I grade this", "What's my portfolio up this week", "Show me new highs in Prizm", "Late 90s Kobe PMG or Credentials", "Watch this auction under $200"];
+  var EXAMPLES = ["Raw Prizm silver rookies under $400", "Find a Wemby chrome refractor rookie under $150", "What are the top movers in Pokemon today", "Should I grade this", "What's my portfolio up this week", "Show me new highs in Prizm", "Late 90s Kobe PMG or Credentials", "Set a max bid on this under $200"];
   var ttsOn = function () { return !!U.LS.get("voice_tts", false); };
   function listings() { if (st.listings) return Promise.resolve(st.listings); return (D.getHuntListings ? D.getHuntListings() : Promise.resolve((window.CARDHOUND_SAMPLE || {}).huntListings || [])).then(function (l) { st.listings = l; return l; }); }
   function byId(id) { return (st.listings || []).filter(function (l) { return l.id === id; })[0]; }
@@ -42,7 +42,17 @@ window.CH_VOICE = function (U) {
       var inp = document.getElementById("vc-in"); if (inp) inp.value = (finalTxt + " " + interim).trim();
     };
     r.onerror = function (e) { setListening(false); if (e.error === "not-allowed" || e.error === "service-not-allowed") toast("Mic blocked. Allow the microphone for this site, or type instead."); else if (e.error === "no-speech") toast("Didn't catch that. Tap the mic and try again."); };
-    r.onend = function () { setListening(false); var t = finalTxt.trim(); if (t) { if (U.parseHash().route !== "ask") { st.pendingText = t; location.hash = "#/ask"; } else submit(t); } };
+    r.onend = function () {
+      setListening(false);
+      var t = finalTxt.trim(); if (!t) return;
+      if (st.micTarget === "hunt") {
+        st.micTarget = null;
+        var hunt = document.getElementById("hunt-q"); if (hunt) hunt.value = t;
+        if (U.submitHunt) U.submitHunt(t);
+        return;
+      }
+      if (U.parseHash().route !== "ask") { st.pendingText = t; location.hash = "#/ask"; } else submit(t);
+    };
     try { r.start(); setListening(true); } catch (e) { setListening(false); toast("Couldn't start the mic. Type your request instead."); }
   }
 
@@ -72,6 +82,12 @@ window.CH_VOICE = function (U) {
   /* ---------- main entry ---------- */
   function submit(text, silentUser) {
     text = String(text || "").trim(); if (!text) return;
+    if (window.CH_CRISIS && CH_CRISIS.match(text)) {
+      if (!silentUser) push("user", '<div class="vu">' + esc(text) + '</div>');
+      var inp0 = document.getElementById("vc-in"); if (inp0) inp0.value = "";
+      bot("<p>" + esc(CH_CRISIS.message()) + "</p>", CH_CRISIS.message());
+      return;
+    }
     if (!silentUser) push("user", '<div class="vu">' + esc(text) + '</div>');
     var inp = document.getElementById("vc-in"); if (inp) inp.value = "";
     var last = U.lastCard();
@@ -106,7 +122,7 @@ window.CH_VOICE = function (U) {
       case "watchlist_add": case "watchlist_remove": if (!card) return f.target === "named" ? noCard(f) : needCard("watch", text); return watch(r.intent, card);
       case "portfolio_summary": return portfolio(f);
       case "ledger_add": return ledgerAdd(f, card, text);
-      case "auction_watch_set": case "best_offer": case "buy":
+      case "sniper_set": case "best_offer": case "buy":
         if (!card) return f.target === "named" ? noCard(f) : needCard(r.intent, text);
         return confirmCard(r.intent, card, f.max || f.offer || null);
       case "gem_hunt_save": return saveHunt(text);
@@ -162,7 +178,7 @@ window.CH_VOICE = function (U) {
       '<details class="hc-math"><summary>' + I("calc") + 'Profit math</summary><dl class="kv small">' + rows + '</dl>' +
       '<table class="tbl small"><thead><tr><th>' + (L.raw ? "If it grades" : "Sell as") + '</th><th>Odds</th><th>Comp</th><th>Net</th></tr></thead><tbody>' + ev + '</tbody></table>' +
       '<p class="small dim" style="margin:6px 0 0">Expected net sale ' + money(pm.ev, true) + ' (eBay 13.25% + $0.40, $5 ship) minus all-in cost = <b style="color:var(--text)">' + money(pm.net, true) + '</b>. ' + (L.raw ? "Grading: sample PSA tier + $18 ship/insure. Selling raw nets about " + money(pm.rawNet) + "." : "Already graded, so no grading cost.") + ' Estimates only.</p></details>' +
-      '<div class="acts acts-wrap">' + (L.listing_type === "auction" ? btn(I("target") + "Watch", 'data-v="act" data-a="auction_watch_set" data-k="' + k + '"', true) : btn("Buy", 'data-v="act" data-a="buy" data-k="' + k + '"', true) + btn(I("handshake") + "Offer", 'data-v="act" data-a="best_offer" data-k="' + k + '"')) +
+      '<div class="acts acts-wrap">' + (L.listing_type === "auction" ? btn(I("target") + "Auction Watch", 'data-v="act" data-a="sniper_set" data-k="' + k + '"', true) : btn("Buy", 'data-v="act" data-a="buy" data-k="' + k + '"', true) + btn(I("handshake") + "Offer", 'data-v="act" data-a="best_offer" data-k="' + k + '"')) +
       btn(I("eye") + "Watch", 'data-v="act" data-a="watchlist_add" data-k="' + k + '"') + '</div></div>';
   }
 
@@ -170,14 +186,14 @@ window.CH_VOICE = function (U) {
   function confirmCard(kind, L, amt) {
     U.setLastCard({ listingId: L.id, title: L.title, source: "hunt" });
     var pm = V.profitMath(L), fair = Math.floor(pm.ev / 1.15 - (L.raw ? pm.gradeCost : 0) - (L.shipping || 0) - L.price * 0.07 + L.price * 0.07);
-    var def = amt || (kind === "auction_watch_set" ? Math.max(Math.round(L.price * 1.05), Math.min(fair, Math.round(L.price * 1.3))) : kind === "best_offer" ? Math.round(L.price * 0.85) : L.price);
-    var T = { auction_watch_set: ["Set an Auction Watch reminder", "Your max bid", "I will enter my max of", " on eBay myself. CardHound never bids."], best_offer: ["Send a Best Offer", "Your offer", "I want to offer", ". If accepted, I agree to buy."], buy: ["Buy It Now", "You pay (before tax)", "I want to buy this for", " plus tax."] }[kind];
+    var def = amt || (kind === "sniper_set" ? Math.max(Math.round(L.price * 1.05), Math.min(fair, Math.round(L.price * 1.3))) : kind === "best_offer" ? Math.round(L.price * 0.85) : L.price);
+    var T = { sniper_set: ["Set an Auction Watch reminder", "Your max bid", "I set this max of", ". If it wins, I agree to buy."], best_offer: ["Send a Best Offer", "Your offer", "I want to offer", ". If accepted, I agree to buy."], buy: ["Buy It Now", "You pay (before tax)", "I want to buy this for", " plus tax."] }[kind];
     var k = keep({ kind: kind, id: L.id });
     var total = kind === "buy" ? L.price + (L.shipping || 0) : null;
     bot('<div class="vconf" data-k="' + k + '"><div class="eyebrow" style="margin:0">Confirm · simulated</div><b class="vc-tt">' + T[0] + '</b><div class="small muted">' + esc(L.title) + ' · ' + (L.raw ? "Raw" : L.grade_company + " " + L.grade) + ' · ' + (L.listing_type === "auction" ? "current bid " + money(L.price, true) : "listed " + money(L.price, true)) + '</div>' +
       '<div class="field" style="margin-top:12px"><label for="amt-' + k + '">' + T[1] + '</label><input class="input num vamt" id="amt-' + k + '" inputmode="decimal" value="' + (total != null ? total.toFixed(2) : def) + '"' + (kind === "buy" ? " readonly" : "") + '></div>' +
-      (kind === "auction_watch_set" ? '<div class="small dim">Suggested fair max (sample): ' + money(Math.max(0, fair)) + ' to keep about a 15% margin.</div>' : "") +
-      (amt && kind === "auction_watch_set" && amt < L.price ? '<div class="note" style="margin-top:8px">' + I("lock") + '<div>The current bid is already above ' + money(amt) + '. This max would not win as things stand.</div></div>' : "") +
+      (kind === "sniper_set" ? '<div class="small dim">Suggested fair max (sample): ' + money(Math.max(0, fair)) + ' to keep about a 15% margin.</div>' : "") +
+      (amt && kind === "sniper_set" && amt < L.price ? '<div class="note" style="margin-top:8px">' + I("lock") + '<div>The current bid is already above ' + money(amt) + '. This max would not win as things stand.</div></div>' : "") +
       '<label class="row vchk"><input type="checkbox" class="vok"><span>' + T[2] + ' <b class="vamt-echo">' + money(total != null ? total : def, true) + '</b>' + T[3] + '</span></label>' +
       '<div class="cta-stack" style="margin-top:10px"><button class="btn btn-gold vgo" data-v="confirm" data-k="' + k + '" disabled>Confirm (simulated)</button><button class="btn btn-ghost btn-sm" data-v="cancel" data-k="' + k + '">Cancel</button></div>' +
       '<p class="small dim" style="margin:8px 0 0">' + I("shield") + ' Demo: nothing is bid, bought or sent. In the app you finish on eBay yourself.</p></div>',
@@ -246,7 +262,7 @@ window.CH_VOICE = function (U) {
     var c = f.card || {}, title = card ? card.title : V.chipsFor(c).filter(function (x) { return ["player", "year", "set", "parallel_color", "card_number"].indexOf(x.field) > -1; }).map(function (x) { return x.value; }).join(" ");
     var grade = c.grade_company && c.grade ? c.grade_company + " " + c.grade : "Raw";
     var k = keep({ card: title || "", price: f.price || null, grade: grade });
-    bot(chipsHTML(V.chipsFor(c)) + '<p>Log this buy to your Ledger? You review every field before it saves.</p><dl class="kv small"><dt>Card</dt><dd>' + esc(title || "(fill in)") + '</dd><dt>Price</dt><dd class="num">' + (f.price ? money(f.price, true) : "(fill in)") + '</dd><dt>Grade</dt><dd>' + esc(grade) + '</dd></dl><div class="vq-opts">' + btn("Review and add", 'data-v="ledger" data-k="' + k + '"', true) + '</div>', "Review the buy and save it to your ledger.");
+    bot(chipsHTML(V.chipsFor(c)) + '<p>Log this buy to your Portfolio? You review every field before it saves.</p><dl class="kv small"><dt>Card</dt><dd>' + esc(title || "(fill in)") + '</dd><dt>Price</dt><dd class="num">' + (f.price ? money(f.price, true) : "(fill in)") + '</dd><dt>Grade</dt><dd>' + esc(grade) + '</dd></dl><div class="vq-opts">' + btn("Review and add", 'data-v="ledger" data-k="' + k + '"', true) + '</div>', "Review the buy and save it to your portfolio.");
   }
   function saveHunt(text) {
     var h = st.lastHunt;
@@ -264,7 +280,7 @@ window.CH_VOICE = function (U) {
   function help() {
     bot('<p>Ask by voice or type. Examples:</p><div class="vq-opts col">' + EXAMPLES.concat(["Add this to my watchlist", "I bought a Luka Prizm silver for $300", "Turn off new high alerts"]).map(function (e) { return btn(esc(e), 'data-v="say" data-t="' + esc(e) + '"'); }).join("") + '</div>', "You can ask for movers, hunts, grading calls, your portfolio, Auction Watch and more.");
   }
-  var ALT = { card_hunt: ["Find a card", "find raw prizm silver rookies under $400"], card_lookup: ["Look up a card", "how much is the pujols T247"], lists: ["Show market lists", "top movers today"], should_grade: ["Should I grade it?", "should I grade this"], portfolio_summary: ["My portfolio", "what's my portfolio up this week"], watchlist_add: ["Add to watchlist", "add this to my watchlist"], auction_watch_set: ["Watch the auction", "watch this auction"], best_offer: ["Make an offer", "make an offer on this"], buy: ["Buy it", "buy this"], gem_hunt_save: ["Save a Gem Hunt", "save this hunt"], alerts_settings: ["Alert settings", "alert settings"], ledger_add: ["Log a buy", "log a buy"], help: ["What can you do?", "help"], watchlist_remove: ["Remove from watchlist", "remove this from my watchlist"] };
+  var ALT = { card_hunt: ["Find a card", "find raw prizm silver rookies under $400"], card_lookup: ["Look up a card", "how much is the pujols T247"], lists: ["Show market lists", "top movers today"], should_grade: ["Should I grade it?", "should I grade this"], portfolio_summary: ["My portfolio", "what's my portfolio up this week"], watchlist_add: ["Add to watchlist", "add this to my watchlist"], sniper_set: ["Auction Watch", "set a max bid on this"], best_offer: ["Make an offer", "make an offer on this"], buy: ["Buy it", "buy this"], gem_hunt_save: ["Save a Gem Hunt", "save this hunt"], alerts_settings: ["Alert settings", "alert settings"], ledger_add: ["Log a buy", "log a buy"], help: ["What can you do?", "help"], watchlist_remove: ["Remove from watchlist", "remove this from my watchlist"] };
   function unknown(r) {
     bot('<p>I\'m not sure what you meant. Did you mean:</p><div class="vq-opts">' + r.alternatives.slice(0, 3).map(function (a, i) { var x = ALT[a] || ALT.help; return btn(esc(x[0]), 'data-v="say" data-t="' + esc(x[1]) + '"', i === 0); }).join("") + '</div>', "I'm not sure. Did you mean " + r.alternatives.slice(0, 3).map(function (a) { return (ALT[a] || ALT.help)[0]; }).join(", or ") + "?");
   }
@@ -282,15 +298,15 @@ window.CH_VOICE = function (U) {
     else if (v === "help") help();
     else if (v === "go") location.hash = b.dataset.h;
     else if (v === "pickcard") { var L = byId(b.dataset.id); U.setLastCard({ listingId: L.id, title: L.title, source: "pick", id: L.id === "vh14" ? "PUJOLS-01TCT-T247" : null }); push("user", '<div class="vu">' + esc(L.title) + '</div>'); submit(b.dataset.t, true); }
-    else if (v === "act") { var L2 = byId(d.id); U.setLastCard({ listingId: L2.id, title: L2.title, source: "hunt" }); if (b.dataset.a === "watchlist_add") watch("watchlist_add", L2); else confirmCard(b.dataset.a, L2, b.dataset.a === "auction_watch_set" && st.lastHunt && st.lastHunt.fields.budget_max ? Math.min(st.lastHunt.fields.budget_max, Math.round(L2.price * 1.25)) : null); }
+    else if (v === "act") { var L2 = byId(d.id); U.setLastCard({ listingId: L2.id, title: L2.title, source: "hunt" }); if (b.dataset.a === "watchlist_add") watch("watchlist_add", L2); else confirmCard(b.dataset.a, L2, b.dataset.a === "sniper_set" && st.lastHunt && st.lastHunt.fields.budget_max ? Math.min(st.lastHunt.fields.budget_max, Math.round(L2.price * 1.25)) : null); }
     else if (v === "confirm") {
       var box = b.closest(".vconf"), amt = parseFloat(String(box.querySelector(".vamt").value).replace(/[^0-9.]/g, "")), L3 = byId(d.id);
       if (!box.querySelector(".vok").checked) return; if (!(amt > 0)) { toast("Enter an amount first."); return; }
       box.querySelectorAll("button,input").forEach(function (x) { x.disabled = true; });
-      if (d.kind === "auction_watch_set") {
-        (U.addWatch || U.addSnipe)({ id: "sn" + Date.now(), dealId: L3.id, card: L3.title, max: amt, price: L3.price, status: "Scheduled", endsAt: Date.now() + Math.min(L3.ends_in_min, 45) * 60000 });
-        bot('<p>Simulated: reminder set with your max of <b>' + money(amt, true) + '</b>. Nothing was bid.</p><div class="vq-opts">' + btn("Open Auction Watch", 'data-v="go" data-h="#/deals/auction-watch"', true) + '</div>', "Simulated. Reminder set. Nothing was bid.");
-      } else bot('<p>Simulated: ' + (d.kind === "buy" ? "nothing was bought" : "no offer was sent") + '. In the app you finish this on eBay yourself' + (d.kind === "buy" && D.addLedgerRow ? ", and CardHound logs the buy to your Ledger after you review it" : "") + '.</p>', d.kind === "buy" ? "Simulated. Nothing was bought." : "Simulated. No offer was sent.");
+      if (d.kind === "sniper_set") {
+        U.addSnipe({ id: "sn" + Date.now(), dealId: L3.id, card: L3.title, max: amt, price: L3.price, status: "Scheduled", endsAt: Date.now() + Math.min(L3.ends_in_min, 45) * 60000 });
+        bot('<p>Simulated: reminder set with your max of <b>' + money(amt, true) + '</b>. Nothing was bid.</p><div class="vq-opts">' + btn("Open Auction Watch", 'data-v="go" data-h="#/deals/snipes"', true) + '</div>', "Simulated. Reminder set. Nothing was bid.");
+      } else bot('<p>Simulated: ' + (d.kind === "buy" ? "nothing was bought" : "no offer was sent") + '. In the app you finish this on eBay yourself' + (d.kind === "buy" && D.addLedgerRow ? ", and CardHound logs the buy to your Portfolio after you review it" : "") + '.</p>', d.kind === "buy" ? "Simulated. Nothing was bought." : "Simulated. No offer was sent.");
     } else if (v === "cancel") { var bx = b.closest(".vconf"); bx.querySelectorAll("button,input").forEach(function (x) { x.disabled = true; }); bx.classList.add("off"); toast("Cancelled. Nothing happened."); }
     else if (v === "savehunt") saveHunt("save this hunt");
     else if (v === "refine") { var i2 = document.getElementById("vc-in"); if (i2 && st.lastHunt) { i2.value = st.lastHunt.q + " "; i2.focus(); } }
@@ -302,7 +318,7 @@ window.CH_VOICE = function (U) {
     else if (v === "tts") { U.LS.set("voice_tts", !ttsOn()); b.setAttribute("aria-pressed", ttsOn() ? "true" : "false"); b.classList.toggle("on", ttsOn()); toast(ttsOn() ? "Spoken replies on" : "Spoken replies off"); if (!ttsOn() && window.speechSynthesis) speechSynthesis.cancel(); else speak("Spoken replies are on."); }
     else if (v === "delhunt") D.deleteGemHunt(b.dataset.id).then(function () { fillDeals(U.view, "gems"); });
     else if (v === "runhunt") { D.getGemHunts().then(function (hs) { var h = hs.filter(function (x) { return x.id === b.dataset.id; })[0]; if (h) { st.pendingText = h.q; location.hash = "#/ask"; } }); }
-    else if (v === "mic") listen();
+    else if (v === "mic") { st.micTarget = b.getAttribute("data-mic-target") || ""; listen(); }
     else if (v === "ask") { st.pendingText = b.dataset.t || null; location.hash = "#/ask"; }
   }
   document.addEventListener("click", onClick);
@@ -331,11 +347,7 @@ window.CH_VOICE = function (U) {
   }
   function onRoute(route) {
     var c = document.getElementById("vc-composer"); if (c && route !== "ask") c.remove();
-    var f = document.getElementById("vc-fab");
-    if (!f) { f = document.createElement("button"); f.id = "vc-fab"; f.className = "vc-fab"; f.type = "button"; f.setAttribute("aria-label", "Ask CardHound by voice"); f.innerHTML = I("mic"); document.getElementById("app").appendChild(f);
-      f.onclick = function (e) { e.stopPropagation(); if (SR) listen(); location.hash = "#/ask"; }; }
-    f.setAttribute("data-mic-mode", micMode());
-    f.style.display = route === "ask" ? "none" : "";
+    var f = document.getElementById("vc-fab"); if (f) f.remove();
     document.body.classList.toggle("on-ask", route === "ask");
   }
   function homeCard() {

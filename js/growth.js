@@ -49,13 +49,27 @@
       '<div class="up-plans" role="radiogroup" aria-label="Pick a plan">' + plan("yearly") + plan("monthly") + '</div>' +
       '<p class="up-nudge" id="up-nudge">' + nudge(sel) + '</p>' +
       '<button type="button" class="up-cta" data-up-buy>Start 7-day free trial</button>' +
+      '<p class="up-terms" id="up-terms">' + esc(renewLine(pr)) + '</p>' +
       '<p class="up-trial" id="up-trial">' + trialLine(sel, pr) + '</p>' +
       '<div class="up-row"><button type="button" class="up-link" data-up-close>Not now</button><button type="button" class="up-link" data-up-restore>Restore purchases</button></div>' +
       (o.referral ? '<a class="up-ref" href="' + esc(o.inviteHref || "#/invite") + '">' + I("gift") + '<span><b>Give a month, get a month</b><small>Invite a friend. You both get a free month of Pro.</small></span>' + I("right") + '</a>' : "") +
       '<p class="up-fine">' + esc(o.fine || "Free for 7 days, then the plan you pick. Renews automatically until you cancel in your app store settings, at least 24 hours before the trial or period ends.") + '</p>' +
+      (o.legal ? '<p class="up-legal"><a href="' + esc(o.legal.terms) + '">Terms</a> · <a href="' + esc(o.legal.privacy) + '">Privacy</a></p>' : "") +
       (o.note ? '<p class="up-note">' + esc(o.note) + '</p>' : "") + '</section>';
   }
   function nudge(k) { return k === "yearly" ? "Yearly saves you " + money(SAVE) + " a year vs monthly." : "Switch to yearly and save " + money(SAVE) + " a year."; }
+  /* Apple-style price + renewal line, shown right under every subscribe button (pre-release legal check, Oct 6 2026).
+   * The store's own price strings win when the store is connected. */
+  function renewLine(pr) { pr = pr || {};
+    return (pr.monthly || money(PRICE.monthly)) + "/month or " + (pr.yearly || money(PRICE.yearly)) + "/year after a 7-day free trial. " +
+      "Auto-renews until canceled. Cancel anytime in Settings at least 24 hours before renewal."; }
+  /* Settings > Manage subscription. iOS opens Apple's subscriptions page; Android opens Google Play's; the web shows a note. */
+  var MANAGE = { ios: "https://apps.apple.com/account/subscriptions", android: "https://play.google.com/store/account/subscriptions" };
+  function manageSubURL(platform) { return MANAGE[platform] || ""; }
+  function manageSub(o) { o = o || {}; var url = manageSubURL(o.platform);
+    if (url) { (o.open || function (u) { window.open(u, "_blank"); })(url); return url; }
+    (o.toast || function (m) { window.alert(m); })("Subscriptions are bought in the CardHound app on iPhone or Android. Manage or cancel yours there: Settings > Manage subscription. Nothing to manage on the web yet.");
+    return ""; }
   function trialLine(k, pr) { pr = pr || {}; return "Free for 7 days, then " + (pr[k] || money(PRICE[k])) + (k === "monthly" ? "/mo" : "/yr") + ". Cancel anytime before the trial ends and you won't be charged."; }
   /* wire the screen: o.onBuy(plan), o.onRestore(), o.onClose() */
   function upsellBind(root, o) {
@@ -150,5 +164,5 @@
   }
 
   window.CHGrowth = { flags: flags, on: on, upsellHTML: upsellHTML, upsellBind: upsellBind, teaser: teaser, inviteHTML: inviteHTML, inviteBind: inviteBind,
-    placeMax: placeMax, prices: PRICE, yearlySave: SAVE, esc: esc };
+    placeMax: placeMax, prices: PRICE, yearlySave: SAVE, esc: esc, renewLine: renewLine, manageSubURL: manageSubURL, manageSub: manageSub };
 })();

@@ -1,0 +1,46 @@
+/* CardHound calm visual pass. OK for local and TikTok preview via ?flags=calm.
+   Not the friends-beta default. Do not link this file from index.html. */
+:root{
+  --bg:#0a0a0c; --bg2:#101014; --panel:#16161c; --panel2:#1c1c24;
+  --glass:rgba(255,255,255,.03); --glass2:rgba(255,255,255,.05);
+  --line:rgba(255,255,255,.08); --line2:rgba(255,255,255,.14);
+  --gold-line:rgba(201,162,39,.35);
+  --text:#f5f5f7; --muted:#9a9aa3; --dim:#6b6b75;
+  --gold:#c9a227; --gold2:#e4c76b; --gold3:#8a6e1a;
+  --g-gold:#c9a227; /* solid — kills shimmer gradient fills */
+  --g-gold-soft:rgba(201,162,39,.12);
+  --up:#3ecf8e; --down:#f07178; --warn:#e0a85c;
+}
+body{
+  background:var(--bg) !important;
+}
+body::before{opacity:.035}
+.wordmark,.mono::after,.h1 em{
+  background:none !important;
+  -webkit-background-clip:initial !important;
+  background-clip:initial !important;
+  color:var(--text) !important;
+}
+.wordmark{color:var(--gold2) !important; font-weight:600}
+.btn-gold{
+  color:#14110a !important;
+  background:var(--gold) !important;
+  background-size:auto !important;
+  animation:none !important;
+  box-shadow:0 8px 20px -12px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.08) inset !important;
+}
+.card.gold{
+  border-color:var(--line) !important;
+  background:var(--panel) !important;
+}
+.badge-sample{
+  color:var(--gold2) !important;
+  background:rgba(201,162,39,.08) !important;
+  border-color:var(--gold-line) !important;
+}
+.badge-sample i{box-shadow:none !important}
+.eyebrow,.sec-num{color:var(--muted) !important}
+.v2-row.is-best,.v2-stamp{
+  /* keep stamp readable; soften glow */
+  box-shadow:0 2px 10px rgba(0,0,0,.35) !important;
+}

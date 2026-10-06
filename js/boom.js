@@ -1,4 +1,7 @@
-/* CardHound "BOOM! New High Comp" alerts (in-app, sample data).
+/* PARKED follow-up (not this PR): a celebration — motion and sound — when someone cops
+ * or searches a big card or a new high. Do not build that into calm.css. No sound assets here.
+ *
+ * CardHound "BOOM! New High Comp" alerts (in-app, sample data).
  * Fires when a card's newest sold price is its ALL-TIME HIGH (tier 1) or 90-DAY HIGH (tier 2) for that exact variant + grade.
  * Data via the adapter: D.getNewHighs(scope), D.getNewHighRejects(scope), D.getAlertSettings(), D.setAlertSettings().
  * Optional haptics (navigator.vibrate) and an opt-in Notification API demo. In-app BOOM is the main path. */
