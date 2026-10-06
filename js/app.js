@@ -20,7 +20,7 @@
     snipes: LS.get("snipes", []),
     alerts: LS.get("alerts", { threshold: 20, on: true }),
     scopes: { movers: { view: "overall", value: null }, picks: { view: "overall", value: null }, searched: { view: "overall", value: null }, highs: { view: "overall", value: null } },
-    moversDir: "up", scopeSetQ: "", meta: null, timers: []
+    moversDir: "up", scopeSetQ: "", scopeCatQ: "", dailyCatQ: "", huntKind: "", meta: null, timers: []
   };
   /* Purge prior demo "connected" flag — never treat it as live Ladder comps. */
   if (state.conn && state.conn.cardladder) { delete state.conn.cardladder; try { LS.set("conn", state.conn); } catch (e) {} }
@@ -556,6 +556,60 @@
 
 
   /* Set picker: searchable list with year: set / Set: name labels. */
+  /* Kind / category — TOP_KINDS native <select> (Maurice lock Oct 6).
+   * Confirm + Markets/Daily use one dropdown, not a searchable kind wall. */
+  var TOP_KINDS = [
+    "Disney", "Marvel", "Football", "Basketball", "Baseball", "Hockey",
+    "Pokémon", "Magic", "Yu-Gi-Oh!", "Lorcana", "One Piece",
+    "Star Wars", "Simpsons", "WWE", "Soccer", "Golf",
+    "Racing", "Garbage Pail Kids", "Digimon", "Flesh and Blood"
+  ];
+  var KIND_FAMILY = {
+    "Basketball": "Sport", "Baseball": "Sport", "Football": "Sport", "Hockey": "Sport",
+    "Soccer": "Sport", "Golf": "Sport", "Racing": "Sport", "Boxing": "Sport", "MMA": "Sport",
+    "Tennis": "Sport", "Wrestling": "Sport",
+    "Pokémon": "TCG", "Magic": "TCG", "Yu-Gi-Oh!": "TCG", "Lorcana": "TCG", "One Piece": "TCG",
+    "Flesh and Blood": "TCG", "Digimon": "TCG", "Dragon Ball": "TCG", "Weiss Schwarz": "TCG",
+    "Marvel": "Non-sport", "Star Wars": "Non-sport", "Simpsons": "Non-sport", "WWE": "Non-sport",
+    "Garbage Pail Kids": "Non-sport", "Disney": "Non-sport", "Harry Potter": "Non-sport",
+    "Lord of the Rings": "Non-sport", "Fortnite": "Non-sport", "Music": "Non-sport"
+  };
+  function kindFamily(id) {
+    return KIND_FAMILY[id] || "Other";
+  }
+  function kindLabel(id) {
+    id = String(id || "").trim();
+    if (!id) return "";
+    return kindFamily(id) + ": " + id;
+  }
+  /** Native <select> of TOP_KINDS (+ optional empty “Any kind”). Extra selected value kept if not in list. */
+  function kindSelectHTML(selected, opts) {
+    opts = opts || {};
+    var id = opts.id || "o-kind";
+    var emptyLabel = opts.emptyLabel;
+    var sel = String(selected || "").trim();
+    var html = '<select class="input" id="' + esc(id) + '"' + (opts.ariaLabel ? ' aria-label="' + esc(opts.ariaLabel) + '"' : "") + '>';
+    if (emptyLabel != null) {
+      html += '<option value="">' + esc(emptyLabel) + '</option>';
+    }
+    var seen = {};
+    TOP_KINDS.forEach(function (k) {
+      seen[k.toLowerCase()] = true;
+      html += '<option value="' + esc(k) + '"' + (sel.toLowerCase() === k.toLowerCase() ? " selected" : "") + ">" + esc(kindLabel(k)) + "</option>";
+    });
+    if (sel && !seen[sel.toLowerCase()]) {
+      html += '<option value="' + esc(sel) + '" selected>' + esc(kindLabel(sel)) + "</option>";
+    }
+    return html + "</select>";
+  }
+  function bindKindSelectForSets() {
+    var kindEl = document.getElementById("o-kind");
+    if (!kindEl) return;
+    kindEl.onchange = function () {
+      if (typeof bindSetPick === "function") bindSetPick();
+    };
+  }
+
   function setLabel(year, set) {
     year = String(year || "").trim(); set = String(set || "").trim();
     if (year && set) return year + ": " + set;
@@ -564,6 +618,8 @@
   }
   function allSets() {
     var seen = {}, out = [];
+    var kindEl = document.getElementById("o-kind");
+    var kindFilter = (kindEl && kindEl.value.trim()) || "";
     function add(year, set) {
       set = String(set || "").trim(); if (!set) return;
       var y = String(year || "").trim();
@@ -571,8 +627,11 @@
       if (seen[k]) return; seen[k] = true;
       out.push({ year: y, set: set, label: setLabel(y, set) });
     }
-    sampleCatalog().forEach(function (c) { add(c.year, c.set); });
-    ((state.meta && state.meta.sets) || []).forEach(function (s) { add("", s); });
+    sampleCatalog().forEach(function (c) {
+      if (kindFilter && c.category && String(c.category).toLowerCase() !== kindFilter.toLowerCase()) return;
+      add(c.year, c.set);
+    });
+    if (!kindFilter) ((state.meta && state.meta.sets) || []).forEach(function (s) { add("", s); });
     out.sort(function (a, b) {
       if (a.year && b.year && a.year !== b.year) return b.year.localeCompare(a.year);
       if (a.year && !b.year) return -1;
@@ -667,14 +726,15 @@
       (rows || '<div class="card" style="margin-top:12px"><b>No single match yet.</b><p class="small muted" style="margin:6px 0 0">Type the year, set, number, and variant.</p></div>') +
       '<div class="card" style="margin-top:14px"><button class="row between" id="ovr" type="button" style="width:100%;min-height:48px"><span class="row" style="gap:10px"><b style="font-size:15px">Type the set myself</b></span><span class="dim">' + I("down") + '</span></button>' +
       '<div id="ovr-form" ' + (c.length ? "hidden" : "") + '><div class="grid2"><div class="field"><label for="o-year">Year</label><input class="input" id="o-year" placeholder="2001" inputmode="numeric" value="' + esc(pre.year || "") + '"></div><div class="field"><label for="o-num">Card #</label><input class="input" id="o-num" placeholder="T247" value="' + esc(pre.card_number || pre.number || "") + '"></div></div>' +
+      '<div class="field"><label for="o-kind">Kind</label>' + kindSelectHTML(pre.category || "", { id: "o-kind", emptyLabel: "Any kind" }) + '</div>' +
       '<div class="field"><label for="o-set-q">Set</label><input class="input" id="o-set-q" placeholder="Search year or set" autocomplete="off" value="' + esc(pre.set ? setLabel(pre.year, pre.set) : "") + '"><input type="hidden" id="o-set" value="' + esc(pre.set || "") + '">' + setPickHTML(pre.set || "", pre.set || "") + '</div><div class="field"><label for="o-player">Player or subject</label><input class="input" id="o-player" placeholder="Albert Pujols" value="' + esc(pre.player || "") + '"></div>' +
       '<div class="field"><label for="o-var">Parallel or variant</label><input class="input" id="o-var" placeholder="Base, Refractor, Gold /50" value="' + esc(pre.parallel_color || pre.variant || "") + '"></div>' +
       '<p class="confirm-err" id="confirm-err" hidden>Add the set (example: 1998 Topps Chrome).</p></div></div>' +
       '<div class="cta-stack"><button class="btn btn-gold" id="confirm" type="button">Confirm — show sold prices</button><a class="btn btn-ghost" href="#/scan">Start over</a></div>' + flowEnd({ leave: true, huntLine: state.liveHunt ? CH_AI.huntLine(state.liveHunt) : "" }) + footer();
     view.querySelectorAll(".cand").forEach(function (b) { b.onclick = function () { state.pickedCandidate = +b.dataset.i; view.querySelectorAll(".cand").forEach(function (o) { o.classList.toggle("on", o === b); }); }; });
-    document.getElementById("ovr").onclick = function () { var f = document.getElementById("ovr-form"); f.hidden = !f.hidden; if (!f.hidden) bindSetPick(); };
+    document.getElementById("ovr").onclick = function () { var f = document.getElementById("ovr-form"); f.hidden = !f.hidden; if (!f.hidden) { bindKindSelectForSets(); bindSetPick(); } };
     document.getElementById("confirm").onclick = function () { confirmExact(pack); };
-    if (document.getElementById("ovr-form") && !document.getElementById("ovr-form").hidden) bindSetPick();
+    if (document.getElementById("ovr-form") && !document.getElementById("ovr-form").hidden) { bindKindSelectForSets(); bindSetPick(); }
   }
   function confirmExact(pack) {
     var form = document.getElementById("ovr-form");
@@ -682,12 +742,14 @@
     var picked;
     if (manualOn) {
       var ms = readManualSet();
+      var kindEl = document.getElementById("o-kind");
       picked = {
         year: document.getElementById("o-year").value.trim() || ms.year,
         set: ms.set,
         number: document.getElementById("o-num").value.trim(),
         player: document.getElementById("o-player").value.trim(),
-        variant: document.getElementById("o-var").value.trim()
+        variant: document.getElementById("o-var").value.trim(),
+        category: (kindEl && kindEl.value.trim()) || ""
       };
     } else picked = (pack.candidates || [])[state.pickedCandidate] || null;
     if (!picked) {
@@ -968,19 +1030,21 @@
   /* MARKETS */
   function scopeBar(list) {
     var sc = state.scopes[list], m = state.meta;
-    var seg = '<div class="seg" data-scopeview="' + list + '">' + ["overall", "category", "set"].map(function (v) { return '<button data-v="' + v + '" class="' + (sc.view === v ? "on" : "") + '">' + v.charAt(0).toUpperCase() + v.slice(1) + '</button>'; }).join("") + '</div>';
+    var seg = '<div class="seg" data-scopeview="' + list + '">' + ["overall", "category", "set"].map(function (v) { return '<button data-v="' + v + '" class="' + (sc.view === v ? "on" : "") + '">' + (v === "category" ? "Kind" : v.charAt(0).toUpperCase() + v.slice(1)) + '</button>'; }).join("") + '</div>';
     var chips = "";
     if (sc.view !== "overall") {
-      var opts = sc.view === "category" ? m.categories : m.sets;
       if (sc.view === "set") {
+        var opts = m.sets || [];
         var q = (state.scopeSetQ || "").trim().toLowerCase();
         var filtered = opts.filter(function (o) { return !q || String(o).toLowerCase().indexOf(q) > -1; });
         chips = '<div class="field set-search" style="margin:10px 0 0"><label class="sr-only" for="scope-set-q">Search sets</label><input class="input" id="scope-set-q" placeholder="Search sets" value="' + esc(state.scopeSetQ || "") + '" aria-label="Search sets"></div>' +
           '<div class="scopes" data-scopeval="' + list + '">' +
           (filtered.length ? filtered.map(function (o) { return '<button class="' + (sc.value === o ? "on" : "") + '" data-o="' + esc(o) + '">' + esc("Set: " + o) + '</button>'; }).join("") : '<span class="small muted" style="padding:8px 0">No sets match</span>') +
           '</div>';
-      } else {
-        chips = '<div class="scopes" data-scopeval="' + list + '">' + opts.map(function (o) { return '<button class="' + (sc.value === o ? "on" : "") + '" data-o="' + esc(o) + '">' + esc(o) + '</button>'; }).join("") + '</div>';
+      } else if (sc.view === "category") {
+        chips = '<div class="field" style="margin:10px 0 0"><label class="sr-only" for="scope-kind">Kind</label>' +
+          kindSelectHTML(sc.value || TOP_KINDS[0] || "", { id: "scope-kind", ariaLabel: "Kind" }) +
+          '</div>';
       }
     }
     return seg + chips;
@@ -990,14 +1054,16 @@
       b.onclick = function () {
         var sc = state.scopes[list];
         sc.view = b.dataset.v;
-        sc.value = sc.view === "overall" ? null : (sc.view === "category" ? state.meta.categories[0] : state.meta.sets[0]);
+        if (sc.view === "overall") sc.value = null;
+        else if (sc.view === "category") sc.value = (TOP_KINDS[0] || (state.meta.categories && state.meta.categories[0]) || null);
+        else sc.value = state.meta.sets[0];
         if (sc.view !== "set") state.scopeSetQ = "";
         rerender();
       };
     });
     function bindVal() {
       view.querySelectorAll('[data-scopeval="' + list + '"] button').forEach(function (b) {
-        b.onclick = function () { state.scopes[list].value = b.dataset.o; rerender(); };
+        b.onclick = function () { state.scopes[list].value = b.dataset.o || b.dataset.kind; rerender(); };
       });
     }
     bindVal();
@@ -1015,6 +1081,13 @@
           ? filtered.map(function (o) { return '<button class="' + (sc.value === o ? "on" : "") + '" data-o="' + esc(o) + '">' + esc("Set: " + o) + '</button>'; }).join("")
           : '<span class="small muted" style="padding:8px 0">No sets match</span>';
         bindVal();
+      };
+    }
+    var sk = document.getElementById("scope-kind");
+    if (sk) {
+      sk.onchange = function () {
+        state.scopes[list].value = sk.value || (TOP_KINDS[0] || null);
+        rerender();
       };
     }
   }
@@ -1573,12 +1646,6 @@
   }
   function dailyScreen() {
     var prefs = CH_DAILY.normalize(LS.get("daily", CH_DAILY.defaults));
-    var cats = (state.meta && state.meta.categories) || [];
-    function toggleCat(name) {
-      var i = prefs.categories.indexOf(name);
-      if (i > -1) prefs.categories.splice(i, 1); else prefs.categories.push(name);
-      LS.set("daily", prefs); dailyScreen();
-    }
     Promise.all([
       D.getMovers({ view: "overall" }),
       D.getNewHighs({ view: "overall" }),
@@ -1615,8 +1682,10 @@
         '<p class="lead">Movers first, then the rest of the brief.</p>' +
         '<span class="chip">SAMPLE</span>' + gate("comps") +
         '<div class="card daily-tailor"><h2 class="h3">Tailor this brief</h2><p class="daily-now" id="daily-now">' + esc(CH_DAILY.label(prefs)) + '</p>' +
-        '<h2 class="h3">Categories</h2><p class="small muted">Leave all off to include every category.</p>' +
-        '<div class="scopes daily-cats" id="daily-cats">' + cats.map(function (c) { return '<button type="button" data-cat="' + esc(c) + '" class="' + (prefs.categories.indexOf(c) > -1 ? "on" : "") + '">' + esc(c) + '</button>'; }).join("") + '</div>' +
+        '<h2 class="h3">Kind</h2><p class="small muted">Top kinds by what’s selling. Any kind = whole brief.</p>' +
+        '<div class="field" style="margin:8px 0 0"><label class="sr-only" for="daily-kind">Kind</label>' +
+        kindSelectHTML((prefs.categories && prefs.categories[0]) || "", { id: "daily-kind", emptyLabel: "Any kind", ariaLabel: "Kind" }) +
+        '</div>' +
         '<h2 class="h3">Focus</h2><div class="daily-focus" id="daily-focus" role="group" aria-label="Brief focus">' +
         [["all", "All"], ["watchlist", "Watchlist"], ["gems", "Gems"], ["movers", "Movers"]].map(function (f) { return '<button type="button" data-f="' + f[0] + '" class="' + (prefs.focus === f[0] ? "on" : "") + '">' + f[1] + '</button>'; }).join("") + '</div>' +
         '<h2 class="h3">Include</h2>' +
@@ -1624,7 +1693,13 @@
           var on = prefs.sections[s[0]] !== false;
           return '<button type="button" class="tool daily-toggle" data-sec="' + s[0] + '" aria-pressed="' + (on ? "true" : "false") + '"><span class="tt"><b>' + s[1] + '</b><span>' + (on ? "On" : "Off") + '</span></span></button>';
         }).join("") + '</div>' + body + microNote() + flowEnd() + footer();
-      view.querySelectorAll("#daily-cats button").forEach(function (b) { b.onclick = function () { toggleCat(b.dataset.cat); }; });
+      var dk = document.getElementById("daily-kind");
+      if (dk) {
+        dk.onchange = function () {
+          prefs.categories = dk.value ? [dk.value] : [];
+          LS.set("daily", prefs); dailyScreen();
+        };
+      }
       view.querySelectorAll("#daily-focus button").forEach(function (b) { b.onclick = function () { prefs.focus = b.dataset.f; LS.set("daily", prefs); dailyScreen(); }; });
       view.querySelectorAll("[data-sec]").forEach(function (b) { b.onclick = function () { prefs.sections[b.dataset.sec] = !prefs.sections[b.dataset.sec]; LS.set("daily", prefs); dailyScreen(); }; });
     });
