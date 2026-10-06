@@ -20,7 +20,7 @@
     snipes: LS.get("snipes", []),
     alerts: LS.get("alerts", { threshold: 20, on: true }),
     scopes: { movers: { view: "overall", value: null }, picks: { view: "overall", value: null }, searched: { view: "overall", value: null }, highs: { view: "overall", value: null } },
-    moversDir: "up", meta: null, timers: []
+    moversDir: "up", scopeSetQ: "", meta: null, timers: []
   };
   /* Purge prior demo "connected" flag — never treat it as live Ladder comps. */
   if (state.conn && state.conn.cardladder) { delete state.conn.cardladder; try { LS.set("conn", state.conn); } catch (e) {} }
@@ -554,6 +554,97 @@
     }
   }
 
+
+  /* Set picker: searchable list with year: set / Set: name labels. */
+  function setLabel(year, set) {
+    year = String(year || "").trim(); set = String(set || "").trim();
+    if (year && set) return year + ": " + set;
+    if (set) return "Set: " + set;
+    return year || "";
+  }
+  function allSets() {
+    var seen = {}, out = [];
+    function add(year, set) {
+      set = String(set || "").trim(); if (!set) return;
+      var y = String(year || "").trim();
+      var k = y + "|" + set.toLowerCase();
+      if (seen[k]) return; seen[k] = true;
+      out.push({ year: y, set: set, label: setLabel(y, set) });
+    }
+    sampleCatalog().forEach(function (c) { add(c.year, c.set); });
+    ((state.meta && state.meta.sets) || []).forEach(function (s) { add("", s); });
+    out.sort(function (a, b) {
+      if (a.year && b.year && a.year !== b.year) return b.year.localeCompare(a.year);
+      if (a.year && !b.year) return -1;
+      if (!a.year && b.year) return 1;
+      return a.set.localeCompare(b.set);
+    });
+    return out;
+  }
+  function filterSets(q) {
+    q = String(q || "").trim().toLowerCase();
+    var all = allSets();
+    if (!q) return all;
+    return all.filter(function (s) {
+      return s.label.toLowerCase().indexOf(q) > -1 || s.set.toLowerCase().indexOf(q) > -1 || (s.year && s.year.indexOf(q) > -1);
+    });
+  }
+  function setPickHTML(q, selected) {
+    var rows = filterSets(q);
+    if (!rows.length) return '<p class="small muted setpick-empty" style="margin:8px 0 0">No sets match. Keep typing.</p>';
+    return '<div class="setpick" id="o-set-pick" role="listbox">' + rows.slice(0, 48).map(function (s) {
+      var on = selected && selected.toLowerCase() === s.set.toLowerCase();
+      return '<button type="button" class="setpick-item' + (on ? " on" : "") + '" data-set="' + esc(s.set) + '" data-year="' + esc(s.year) + '" role="option">' + esc(s.label) + '</button>';
+    }).join("") + '</div>';
+  }
+  function readManualSet() {
+    var qEl = document.getElementById("o-set-q");
+    var hid = document.getElementById("o-set");
+    var raw = ((qEl && qEl.value) || (hid && hid.value) || "").trim();
+    var m = raw.match(/^(\d{4})\s*:\s*(.+)$/);
+    if (m) return { year: m[1], set: m[2].trim() };
+    var set = ((hid && hid.value) || raw).trim();
+    if (/^set:\s*/i.test(set)) set = set.replace(/^set:\s*/i, "").trim();
+    return { year: "", set: set };
+  }
+  function bindSetPick() {
+    var q = document.getElementById("o-set-q");
+    var hid = document.getElementById("o-set");
+    if (!q || !hid) return;
+    function paint() {
+      var wrap = q.parentNode;
+      var html = setPickHTML(q.value, hid.value);
+      var tmp = document.createElement("div"); tmp.innerHTML = html;
+      var next = tmp.firstChild;
+      var cur = wrap.querySelector("#o-set-pick, .setpick-empty");
+      if (cur) wrap.replaceChild(next, cur); else wrap.appendChild(next);
+      wire();
+    }
+    function wire() {
+      var pick = document.getElementById("o-set-pick");
+      if (!pick) return;
+      pick.querySelectorAll(".setpick-item").forEach(function (b) {
+        b.onclick = function () {
+          hid.value = b.dataset.set || "";
+          q.value = b.dataset.year ? (b.dataset.year + ": " + b.dataset.set) : ("Set: " + b.dataset.set);
+          var y = document.getElementById("o-year");
+          if (y && b.dataset.year && !y.value.trim()) y.value = b.dataset.year;
+          paint();
+        };
+      });
+    }
+    q.oninput = function () {
+      var m = q.value.trim().match(/^(\d{4})\s*:\s*(.+)$/);
+      if (m) hid.value = m[2].trim();
+      else {
+        var t = q.value.trim().replace(/^set:\s*/i, "").trim();
+        hid.value = t;
+      }
+      paint();
+    };
+    wire();
+  }
+
   /* CONFIRM — always required, even a single photo match. */
   function sampleCatalog() {
     return CH_SETGUARD.structureAll((window.CARDHOUND_SAMPLE && CARDHOUND_SAMPLE.candidates) || []);
@@ -566,7 +657,7 @@
     var thumb = state.photo ? '<img src="' + state.photo + '" alt="" style="width:60px;height:60px;object-fit:cover;border-radius:14px;border:1px solid var(--line)">' : '<div style="width:46px;flex:none">' + cardArt() + '</div>';
     var rows = c.map(function (x, i) {
       return '<button type="button" class="cand' + (i === state.pickedCandidate ? " on" : "") + '" data-i="' + i + '"><span class="rad"></span><span class="ct"><b>' + esc(x.player || x.name) + '</b>' +
-        '<span class="setrow"><span class="setchip">' + esc(x.year ? x.year + " " + x.set : x.set) + '</span><span class="setchip">#' + esc(x.number) + '</span><span class="setchip">' + esc(x.variant || "Variant") + '</span></span></span></button>';
+        '<span class="setrow"><span class="setchip">' + esc(setLabel(x.year, x.set)) + '</span><span class="setchip">#' + esc(x.number) + '</span><span class="setchip">' + esc(x.variant || "Variant") + '</span></span></span></button>';
     }).join("");
     view.innerHTML = '<a class="link-btn" href="#/scan">' + I("left") + 'Back</a>' +
       '<div class="row" style="gap:14px;margin-top:12px">' + thumb + '<div><h1 class="h2">Is this the exact card?</h1></div></div>' +
@@ -576,22 +667,24 @@
       (rows || '<div class="card" style="margin-top:12px"><b>No single match yet.</b><p class="small muted" style="margin:6px 0 0">Type the year, set, number, and variant.</p></div>') +
       '<div class="card" style="margin-top:14px"><button class="row between" id="ovr" type="button" style="width:100%;min-height:48px"><span class="row" style="gap:10px"><b style="font-size:15px">Type the set myself</b></span><span class="dim">' + I("down") + '</span></button>' +
       '<div id="ovr-form" ' + (c.length ? "hidden" : "") + '><div class="grid2"><div class="field"><label for="o-year">Year</label><input class="input" id="o-year" placeholder="2001" inputmode="numeric" value="' + esc(pre.year || "") + '"></div><div class="field"><label for="o-num">Card #</label><input class="input" id="o-num" placeholder="T247" value="' + esc(pre.card_number || pre.number || "") + '"></div></div>' +
-      '<div class="field"><label for="o-set">Set</label><input class="input" id="o-set" placeholder="1998 Topps Chrome" value="' + esc(pre.set || "") + '"></div><div class="field"><label for="o-player">Player or subject</label><input class="input" id="o-player" placeholder="Albert Pujols" value="' + esc(pre.player || "") + '"></div>' +
+      '<div class="field"><label for="o-set-q">Set</label><input class="input" id="o-set-q" placeholder="Search year or set" autocomplete="off" value="' + esc(pre.set ? setLabel(pre.year, pre.set) : "") + '"><input type="hidden" id="o-set" value="' + esc(pre.set || "") + '">' + setPickHTML(pre.set || "", pre.set || "") + '</div><div class="field"><label for="o-player">Player or subject</label><input class="input" id="o-player" placeholder="Albert Pujols" value="' + esc(pre.player || "") + '"></div>' +
       '<div class="field"><label for="o-var">Parallel or variant</label><input class="input" id="o-var" placeholder="Base, Refractor, Gold /50" value="' + esc(pre.parallel_color || pre.variant || "") + '"></div>' +
       '<p class="confirm-err" id="confirm-err" hidden>Add the set (example: 1998 Topps Chrome).</p></div></div>' +
       '<div class="cta-stack"><button class="btn btn-gold" id="confirm" type="button">Confirm — show sold prices</button><a class="btn btn-ghost" href="#/scan">Start over</a></div>' + flowEnd({ leave: true, huntLine: state.liveHunt ? CH_AI.huntLine(state.liveHunt) : "" }) + footer();
     view.querySelectorAll(".cand").forEach(function (b) { b.onclick = function () { state.pickedCandidate = +b.dataset.i; view.querySelectorAll(".cand").forEach(function (o) { o.classList.toggle("on", o === b); }); }; });
-    document.getElementById("ovr").onclick = function () { var f = document.getElementById("ovr-form"); f.hidden = !f.hidden; };
+    document.getElementById("ovr").onclick = function () { var f = document.getElementById("ovr-form"); f.hidden = !f.hidden; if (!f.hidden) bindSetPick(); };
     document.getElementById("confirm").onclick = function () { confirmExact(pack); };
+    if (document.getElementById("ovr-form") && !document.getElementById("ovr-form").hidden) bindSetPick();
   }
   function confirmExact(pack) {
     var form = document.getElementById("ovr-form");
     var manualOn = form && !form.hidden;
     var picked;
     if (manualOn) {
+      var ms = readManualSet();
       picked = {
-        year: document.getElementById("o-year").value.trim(),
-        set: document.getElementById("o-set").value.trim(),
+        year: document.getElementById("o-year").value.trim() || ms.year,
+        set: ms.set,
         number: document.getElementById("o-num").value.trim(),
         player: document.getElementById("o-player").value.trim(),
         variant: document.getElementById("o-var").value.trim()
@@ -879,15 +972,51 @@
     var chips = "";
     if (sc.view !== "overall") {
       var opts = sc.view === "category" ? m.categories : m.sets;
-      chips = '<div class="scopes" data-scopeval="' + list + '">' + opts.map(function (o) { return '<button class="' + (sc.value === o ? "on" : "") + '" data-o="' + esc(o) + '">' + esc(o) + '</button>'; }).join("") + '</div>';
+      if (sc.view === "set") {
+        var q = (state.scopeSetQ || "").trim().toLowerCase();
+        var filtered = opts.filter(function (o) { return !q || String(o).toLowerCase().indexOf(q) > -1; });
+        chips = '<div class="field set-search" style="margin:10px 0 0"><label class="sr-only" for="scope-set-q">Search sets</label><input class="input" id="scope-set-q" placeholder="Search sets" value="' + esc(state.scopeSetQ || "") + '" aria-label="Search sets"></div>' +
+          '<div class="scopes" data-scopeval="' + list + '">' +
+          (filtered.length ? filtered.map(function (o) { return '<button class="' + (sc.value === o ? "on" : "") + '" data-o="' + esc(o) + '">' + esc("Set: " + o) + '</button>'; }).join("") : '<span class="small muted" style="padding:8px 0">No sets match</span>') +
+          '</div>';
+      } else {
+        chips = '<div class="scopes" data-scopeval="' + list + '">' + opts.map(function (o) { return '<button class="' + (sc.value === o ? "on" : "") + '" data-o="' + esc(o) + '">' + esc(o) + '</button>'; }).join("") + '</div>';
+      }
     }
     return seg + chips;
   }
   function bindScope(list, rerender) {
     view.querySelectorAll('[data-scopeview="' + list + '"] button').forEach(function (b) {
-      b.onclick = function () { var sc = state.scopes[list]; sc.view = b.dataset.v; sc.value = sc.view === "overall" ? null : (sc.view === "category" ? state.meta.categories[0] : state.meta.sets[0]); rerender(); };
+      b.onclick = function () {
+        var sc = state.scopes[list];
+        sc.view = b.dataset.v;
+        sc.value = sc.view === "overall" ? null : (sc.view === "category" ? state.meta.categories[0] : state.meta.sets[0]);
+        if (sc.view !== "set") state.scopeSetQ = "";
+        rerender();
+      };
     });
-    view.querySelectorAll('[data-scopeval="' + list + '"] button').forEach(function (b) { b.onclick = function () { state.scopes[list].value = b.dataset.o; rerender(); }; });
+    function bindVal() {
+      view.querySelectorAll('[data-scopeval="' + list + '"] button').forEach(function (b) {
+        b.onclick = function () { state.scopes[list].value = b.dataset.o; rerender(); };
+      });
+    }
+    bindVal();
+    var sq = document.getElementById("scope-set-q");
+    if (sq) {
+      sq.oninput = function () {
+        state.scopeSetQ = sq.value;
+        var q = sq.value.trim().toLowerCase();
+        var wrap = view.querySelector('[data-scopeval="' + list + '"]');
+        if (!wrap) return;
+        var sc = state.scopes[list];
+        var opts = (state.meta && state.meta.sets) || [];
+        var filtered = opts.filter(function (o) { return !q || String(o).toLowerCase().indexOf(q) > -1; });
+        wrap.innerHTML = filtered.length
+          ? filtered.map(function (o) { return '<button class="' + (sc.value === o ? "on" : "") + '" data-o="' + esc(o) + '">' + esc("Set: " + o) + '</button>'; }).join("")
+          : '<span class="small muted" style="padding:8px 0">No sets match</span>';
+        bindVal();
+      };
+    }
   }
   function marketsScreen(p) {
     var sub = ["movers", "highs", "picks", "searched", "gems"].indexOf(p.sub) > -1 ? p.sub : "movers";
