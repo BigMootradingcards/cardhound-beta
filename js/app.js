@@ -15,12 +15,49 @@
     conn: LS.get("conn", {}),
     keys: LS.get("keys", {}),
     ai: CH_AI.normalize(LS.get("ai", {})),
+    ladderDeferred: !!LS.get("ladderDeferred", false),
+    ladderHook: LS.get("ladderHook", null),
     snipes: LS.get("snipes", []),
     alerts: LS.get("alerts", { threshold: 20, on: true }),
     scopes: { movers: { view: "overall", value: null }, picks: { view: "overall", value: null }, searched: { view: "overall", value: null }, highs: { view: "overall", value: null } },
     moversDir: "up", meta: null, timers: []
   };
+  /* Purge prior demo "connected" flag — never treat it as live Ladder comps. */
+  if (state.conn && state.conn.cardladder) { delete state.conn.cardladder; try { LS.set("conn", state.conn); } catch (e) {} }
+  function defaultLadderHook() {
+    return { status: "none", method: null, accountOk: false, pendingRows: [], pendingText: "", uiStep: "account" };
+  }
+  if (!state.ladderHook || typeof state.ladderHook !== "object") state.ladderHook = defaultLadderHook();
+  else {
+    var _lh = defaultLadderHook();
+    Object.keys(_lh).forEach(function (k) { if (state.ladderHook[k] == null) state.ladderHook[k] = _lh[k]; });
+    if (state.ladderHook.status !== "awaiting") state.ladderHook.status = "none";
+  }
   var saveConn = function () { LS.set("conn", state.conn); LS.set("keys", state.keys); state.connDirty = true; };
+  var saveLadderHook = function () { LS.set("ladderHook", state.ladderHook); };
+  /* Step 3: live only when confirmed card has ≥1 setguard-kept sale from user hook rows (not SAMPLE inventions). */
+  state.liveSales = null;
+  function hookPendingRows() {
+    return (state.ladderHook && Array.isArray(state.ladderHook.pendingRows)) ? state.ladderHook.pendingRows : [];
+  }
+  function matchHookSalesFor(card) {
+    var LH = window.CH_LADDER_HOOK;
+    if (!LH || typeof LH.matchLiveSales !== "function") return [];
+    return LH.matchLiveSales(hookPendingRows(), card || {});
+  }
+  function ladderCompsLive() {
+    return !!(state.liveSales && state.liveSales.length >= 1);
+  }
+  function ladderHookPhase() {
+    if (ladderCompsLive()) return "live";
+    if (state.ladderHook && state.ladderHook.status === "awaiting") return "awaiting";
+    return "none";
+  }
+  function parseLadderSaleLines(text) {
+    var LH = window.CH_LADDER_HOOK;
+    if (LH && typeof LH.parseLadderSaleLines === "function") return LH.parseLadderSaleLines(text);
+    return [];
+  }
   var saveSnipes = function () { LS.set("snipes", state.snipes); };
 
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
@@ -45,28 +82,38 @@
     var d = pts.map(function (p, i) { return (i ? "L" : "M") + (i * (w - 2) / (pts.length - 1) + 1).toFixed(1) + " " + (h - 2 - (p - mn) / r * (h - 4)).toFixed(1); }).join(" ");
     return '<svg class="sp" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true"><path d="' + d + '" fill="none" stroke="' + (up ? "var(--up)" : "var(--down)") + '" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   }
+  function isSampleAdapter() { return !!(D && (D.isSample || CFG.adapter === "sample")); }
   function gate(featureId) {
     var f = CH_FEATURES[featureId]; if (!f) return "";
     var on = f.sources.filter(isConnected);
-    var ladder = f.sources[0] === "cardladder" ? " Sold comps only. Not for finding cards to buy." : "";
-    if (on.length) return '<div class="gate">' + I("check") + '<div class="grow"><b>' + esc(srcById(on[0]).name) + ' connected (demo)</b>. ' + esc(f.label.charAt(0).toUpperCase() + f.label.slice(1)) + ' would load here.' + ladder + ' This shared demo still shows sample data.</div></div>';
-    if (f.sources[0] === "feed") return '<div class="gate">' + I("spark") + '<div class="grow"><b>' + esc(f.label) + '</b> will come from CardHound\'s own licensed data (coming soon). Showing sample data.</div></div>';
+    var src0 = f.sources[0];
+    var label = f.label.charAt(0).toUpperCase() + f.label.slice(1);
+    if (src0 === "cardladder") {
+      if (ladderCompsLive()) {
+        return '<div class="gate">' + I("check") + '<div class="grow"><b>Sold comps from your Card Ladder</b>. ' + esc(label) + '.</div></div>';
+      }
+      if (ladderHookPhase() === "awaiting") {
+        return '<button class="gate" data-connect="cardladder">' + I("clock") + '<div class="grow"><b>Ladder hook set up · waiting for sale-by-sale rows</b>. ' + esc(label) + ' — still SAMPLE until real sales appear.</div>' + I("right") + '</button>';
+      }
+      return '<button class="gate" data-connect="cardladder">' + I("lock") + '<div class="grow"><b>Comps wait until Card Ladder is linked</b>. ' + esc(label) + ' — showing SAMPLE only. Live sale-by-sale needs a real Ladder hook.</div>' + I("right") + '</button>';
+    }
+    if (on.length) return '<div class="gate">' + I("check") + '<div class="grow"><b>' + esc(srcById(on[0]).name) + ' connected (demo)</b>. ' + esc(label) + ' would load here. This shared demo still shows sample data.</div></div>';
     var names = f.sources.map(function (s) { return srcById(s).name; });
     var nm = names.length > 1 ? names.slice(0, -1).join(", ") + " or " + names[names.length - 1] : names[0];
-    return '<button class="gate" data-connect="' + f.sources[0] + '">' + I("lock") + '<div class="grow"><b>Connect ' + esc(nm) + '</b> to unlock ' + esc(f.label) + '.' + ladder + ' Showing sample data.</div>' + I("right") + '</button>';
+    return '<button class="gate" data-connect="' + src0 + '">' + I("lock") + '<div class="grow"><b>Connect ' + esc(nm) + '</b> to unlock ' + esc(f.label) + '. Showing sample data.</div>' + I("right") + '</button>';
   }
   function jobSplitHTML() {
     var j = CH_AI.job;
-    return '<div class="job-split" aria-label="AI and Card Ladder do different jobs"><div class="job-row"><b>AI</b><span>' + esc(j.aiShort) + '</span></div><div class="job-row"><b>Card Ladder</b><span>' + esc(j.ladderShort) + '</span></div></div>';
+    return '<div class="job-split" aria-label="AI and sold comps do different jobs"><div class="job-row"><b>AI</b><span>' + esc(j.aiShort) + '</span></div><div class="job-row"><b>Card Ladder</b><span>Live sold comps from your Ladder. Hunt faster. Clearer call. Less tab-juggling.</span></div></div>';
   }
   /* End of a flow only. Do not place this above the first action. */
   function flowEnd(opts) {
     opts = opts || {};
     var j = CH_AI.job;
     var lines = [];
-    if (opts.sample !== false) lines.push("<b>SAMPLE.</b> Not live prices.");
+    if (opts.sample !== false) lines.push("<b>SAMPLE.</b> Not live prices. Live sold comps wait on your Card Ladder hook — this preview does not unlock them.");
     lines.push("Not financial or investment advice.");
-    lines.push("<b>AI.</b> " + esc(j.aiShort) + " <b>Card Ladder.</b> " + esc(j.ladderShort));
+    lines.push("<b>AI.</b> " + esc(j.aiShort) + " <b>Sold comps.</b> From your Card Ladder when a real hook returns rows.");
     if (opts.leave) lines.push("Your key stays on this phone until you send a hunt. It goes only to the AI you picked, after you agree. If no live reply comes back, this stays SAMPLE.");
     if (opts.huntLine) lines.push('<span id="flow-hunt-line">' + esc(opts.huntLine) + '</span>');
     if (opts.photo) lines.push("A photo stays on this phone until you agree to send it.");
@@ -319,6 +366,10 @@
     var settled = CH_AI.settled(ai);
     var live = CH_AI.connected(ai);
     var who = live ? CH_AI.byId(ai.provider) : null;
+    var ladderLive = ladderCompsLive();
+    var ladderDeferred = !!state.ladderDeferred;
+    var ladderPhase = ladderHookPhase();
+    var needLadderGate = !ladderLive && !ladderDeferred && ladderPhase === "none";
     var frame = state.photo
       ? '<img class="photo" src="' + state.photo + '" alt="Your card photo preview"><div class="corners"><i></i><i></i><i></i><i></i></div>'
       : '<div class="grid-ov"></div><div class="corners"><i></i><i></i><i></i><i></i></div><div class="scan-empty"><div class="ring">' + I("camera") + '</div><b>Frame the card</b>Slab or raw.</div>';
@@ -326,10 +377,34 @@
       ? '<button class="btn ' + (settled ? "btn-gold" : "btn-ghost") + '" id="go-analyze" type="button">Analyze this card</button><label class="btn btn-ghost" for="file">Retake</label>'
       : '<label class="btn ' + (settled ? "btn-gold" : "btn-ghost") + '" for="file">Take or upload a photo</label>';
     var start = "";
-    if (!settled) {
+    if (needLadderGate) {
+      start = '<section class="ai-start" aria-label="Card Ladder required">' +
+        '<div class="eyebrow">Start here</div><h1 class="h1">You need Card Ladder for this to work correctly.</h1>' +
+        '<p class="lead">Live sold comps come from your Card Ladder. CardHound helps you hunt faster and get a clearer call — connect Ladder, then check a card.</p>' +
+        '<p class="lead" style="margin-top:8px"><b>Hunt faster. Clearer call. Less tab-juggling.</b></p>' +
+        jobSplitHTML() +
+        '<div class="cta-stack"><button class="btn btn-gold" id="ladder-connect" type="button">' + I("plug") + 'Connect Card Ladder</button>' +
+        '<button class="btn btn-ghost" id="ladder-defer" type="button">Continue — name cards; comps wait</button></div>' +
+        '<p class="small muted" style="margin:0">Photo / lookup can still name the card. Sold comps wait until Ladder is linked. No password. No scrape. This preview does not unlock live comps.</p></section>' +
+        '<h2 class="h3 home-later">Name a card while comps wait</h2>' +
+        '<div class="home-split is-secondary">' +
+          '<section class="home-pane" aria-label="What\'s this card?">' +
+            '<h2>What\'s this card?</h2>' +
+            '<div class="scan-frame">' + frame + '</div>' +
+            '<input class="file-input" id="file" type="file" accept="image/*" capture="environment">' +
+            '<label class="btn btn-ghost" for="file">Take or upload a photo</label>' +
+            (state.photo ? '<button class="btn btn-ghost" id="go-analyze" type="button">Name this card</button>' : '') +
+            '<p class="small muted" style="margin:0">Names the card only. Comps wait until Card Ladder is linked.</p>' +
+          '</section>' +
+        '</div>';
+    } else if (!settled) {
       var draftName = (CH_AI.byId(aiDraft) || CH_AI.providers[0]).name;
-      start = '<section class="ai-start" aria-label="Connect your AI">' +
-        '<div class="eyebrow">Start here</div><h1 class="h1">Connect your AI</h1>' +
+      var ladderBan = ladderPhase === "awaiting"
+        ? '<button type="button" class="ai-banner" id="ladder-open" style="margin-bottom:12px"><span><b>Ladder hook set up · waiting for sale-by-sale rows</b><span>Still SAMPLE until real sales appear. Hunt faster. Clearer call. Less tab-juggling.</span></span>' + I("right") + '</button>'
+        : '<button type="button" class="ai-banner" id="ladder-open" style="margin-bottom:12px"><span><b>You need Card Ladder for this to work correctly</b><span>Comps wait until Ladder is linked. Hunt faster. Clearer call. Less tab-juggling.</span></span>' + I("right") + '</button>';
+      start = ladderBan +
+        '<section class="ai-start" aria-label="Connect your AI">' +
+        '<div class="eyebrow">Next</div><h1 class="h1">Connect your AI</h1>' +
         '<p class="lead">' + esc(CH_AI.job.ai) + ' Card Ladder is sold comps only, not a buy finder.</p>' +
         jobSplitHTML() +
         '<div class="ai-picks" id="ai-picks" role="radiogroup" aria-label="Preferred AI">' + aiPickHTML(aiDraft) + '</div>' +
@@ -338,43 +413,72 @@
         '<button class="btn btn-ghost" id="ai-skip" type="button">Skip for now</button></div>' +
         '<p class="small muted" style="margin:0">You can change this in Settings.</p></section>';
     } else if (live && who) {
-      start = '<button type="button" class="ai-banner on" id="ai-open"><span><b>' + esc(who.name) + ' · deal call and hunts</b><span>' + (aiSecret() ? "Key on this phone · …" + esc(CH_AI.maskKey(aiSecret())) : "Add your key in Settings.") + '</span></span><span class="chip">Change</span></button>';
+      var ladderBan2 = ladderPhase === "awaiting"
+        ? '<button type="button" class="ai-banner" id="ladder-open"><span><b>Ladder hook set up · waiting for sale-by-sale rows</b><span>Still SAMPLE until real sales appear.</span></span>' + I("right") + '</button>'
+        : '<button type="button" class="ai-banner" id="ladder-open"><span><b>You need Card Ladder for this to work correctly</b><span>Comps wait until Ladder is linked.</span></span>' + I("right") + '</button>';
+      start = ladderBan2 +
+        '<button type="button" class="ai-banner on" id="ai-open"><span><b>' + esc(who.name) + ' · deal call and hunts</b><span>' + (aiSecret() ? "Key on this phone · …" + esc(CH_AI.maskKey(aiSecret())) : "Add your key in Settings.") + '</span></span><span class="chip">Change</span></button>';
     } else {
-      start = '<button type="button" class="ai-banner" id="ai-open"><span><b>Connect your AI</b><span>Deal call, chart, and open-market buy hunts.</span></span>' + I("right") + '</button>';
+      var ladderBan3 = ladderPhase === "awaiting"
+        ? '<button type="button" class="ai-banner" id="ladder-open"><span><b>Ladder hook set up · waiting for sale-by-sale rows</b><span>Still SAMPLE until real sales appear.</span></span>' + I("right") + '</button>'
+        : '<button type="button" class="ai-banner" id="ladder-open"><span><b>You need Card Ladder for this to work correctly</b><span>Comps wait until Ladder is linked.</span></span>' + I("right") + '</button>';
+      start = ladderBan3 +
+        '<button type="button" class="ai-banner" id="ai-open"><span><b>Connect your AI</b><span>Deal call, chart, and open-market buy hunts.</span></span>' + I("right") + '</button>';
     }
+    var showFullHome = !needLadderGate;
+    var homeReady = showFullHome && settled && ladderLive;
     view.innerHTML = start +
-      (settled
-        ? '<h1 class="h1">Check a card</h1><p class="lead">Photo can name the card. The hunt searches the open market. Sold comps come from Card Ladder. Your AI calls deal, overpaying, or underpaying and charts the card.</p>'
-        : '<h2 class="h3 home-later">Or check a card with sample data</h2>') +
-      '<div class="home-split' + (settled ? "" : " is-secondary") + '">' +
-        '<section class="home-pane" aria-label="What\'s this card?">' +
-          '<h2>What\'s this card?</h2>' +
-          '<div class="scan-frame">' + frame + '</div>' +
-          '<input class="file-input" id="file" type="file" accept="image/*" capture="environment">' +
-          photoBtn +
-          '<p class="small muted" style="margin:0">Names the card. The deal call comes after you confirm the set.</p>' +
-        '</section>' +
-        '<section class="home-pane" aria-label="Find buys">' +
-          '<h2>Find buys</h2>' +
-          '<textarea class="input" id="hunt-q" placeholder="Year, set, player, budget" aria-label="Describe the buy hunt"></textarea>' +
-          '<button class="btn ' + (settled ? "btn-gold" : "btn-ghost") + '" id="hunt-go" type="button">Hunt</button>' +
-          '<button class="btn btn-ghost hunt-mic" type="button" data-v="mic" data-mic-target="hunt" aria-label="Speak a hunt">' + I("mic") + ' Speak</button>' +
-          '<p class="small muted" style="margin:0">Open market: listings, deals, promos. Daily, or on the schedule you set. Not Card Ladder.</p>' +
-        '</section>' +
-      '</div>' +
-      lastCheckedHTML() +
+      (showFullHome
+        ? ((settled
+            ? '<h1 class="h1">Check a card</h1><p class="lead">Photo can name the card. The hunt searches the open market. Live sold comps come from your Card Ladder when linked. Your AI calls deal, overpaying, or underpaying and charts the card.</p>'
+            : '<h2 class="h3 home-later">Or check a card — comps wait</h2>') +
+          '<div class="home-split' + (homeReady ? "" : " is-secondary") + '">' +
+            '<section class="home-pane" aria-label="What\'s this card?">' +
+              '<h2>What\'s this card?</h2>' +
+              '<div class="scan-frame">' + frame + '</div>' +
+              '<input class="file-input" id="file" type="file" accept="image/*" capture="environment">' +
+              photoBtn +
+              '<p class="small muted" style="margin:0">Names the card. Sold comps wait until Card Ladder is linked.</p>' +
+            '</section>' +
+            '<section class="home-pane" aria-label="Find buys">' +
+              '<h2>Find buys</h2>' +
+              '<textarea class="input" id="hunt-q" placeholder="Year, set, player, budget" aria-label="Describe the buy hunt"></textarea>' +
+              '<button class="btn ' + (settled ? "btn-gold" : "btn-ghost") + '" id="hunt-go" type="button">Hunt</button>' +
+              '<button class="btn btn-ghost hunt-mic" type="button" data-v="mic" data-mic-target="hunt" aria-label="Speak a hunt">' + I("mic") + ' Speak</button>' +
+              '<p class="small muted" style="margin:0">Open market: listings, deals, promos. Not Card Ladder sold comps.</p>' +
+            '</section>' +
+          '</div>' +
+          lastCheckedHTML())
+        : '') +
       flowEnd({ leave: true, photo: true }) +
       footer();
     var f = document.getElementById("file");
-    f.addEventListener("change", function () {
-      var file = f.files && f.files[0]; if (!file) return;
-      if (state.photo) URL.revokeObjectURL(state.photo);
-      state.photo = URL.createObjectURL(file); scanScreen();
-    });
-    var a = document.getElementById("go-analyze"); if (a) a.onclick = function () { state.check = null; location.hash = "#/analyze"; };
-    guardPhoto(f);
-    document.getElementById("hunt-go").onclick = function () { submitHunt(document.getElementById("hunt-q").value); };
-    if (!settled) {
+    if (f) {
+      f.addEventListener("change", function () {
+        var file = f.files && f.files[0]; if (!file) return;
+        if (state.photo) URL.revokeObjectURL(state.photo);
+        state.photo = URL.createObjectURL(file); scanScreen();
+      });
+      guardPhoto(f);
+    }
+    var a = document.getElementById("go-analyze");
+    if (a) a.onclick = function () { state.check = null; location.hash = "#/analyze"; };
+    var huntGo = document.getElementById("hunt-go");
+    if (huntGo) huntGo.onclick = function () { submitHunt(document.getElementById("hunt-q").value); };
+    var ladderBtn = document.getElementById("ladder-connect");
+    if (ladderBtn) ladderBtn.onclick = function () { connectSheet("cardladder"); };
+    var ladderDefer = document.getElementById("ladder-defer");
+    if (ladderDefer) ladderDefer.onclick = function () {
+      state.ladderDeferred = true;
+      LS.set("ladderDeferred", true);
+      toast("Comps wait until Card Ladder is linked. You can still name cards.");
+      scanScreen();
+    };
+    var ladderOpen = document.getElementById("ladder-open");
+    if (ladderOpen) ladderOpen.onclick = function () { connectSheet("cardladder"); };
+    if (needLadderGate) {
+      /* Ladder gate first — no AI connect yet */
+    } else if (!settled) {
       bindAiPicks(document.getElementById("ai-picks") || view, function (id) {
         aiDraft = id;
         var btn = document.getElementById("ai-connect");
@@ -397,6 +501,7 @@
       if (open) open.onclick = aiSheet;
     }
   }
+
   function submitHunt(q) {
     q = String(q || "").trim();
     if (!q) { toast("Say what to hunt."); return; }
@@ -510,6 +615,35 @@
       if (err2) { err2.hidden = false; err2.textContent = decision.detail; }
       return;
     }
+    var card = (decision && decision.picked) ? decision.picked : picked;
+    var pending = hookPendingRows();
+    /* When the user has pasted sold rows, comps come only from exact setguard matches — never SAMPLE inventions. */
+    if (pending.length) {
+      if (!decision.priced && decision.code !== "no_exact_comp") {
+        state.liveSales = null;
+        state.unpriced = decision;
+        location.hash = "#/unpriced";
+        return;
+      }
+      var kept = matchHookSalesFor(card);
+      if (!kept.length) {
+        state.liveSales = null;
+        state.unpriced = {
+          priced: false, showPrices: false, code: "no_exact_comp", title: "UNPRICED",
+          headline: "We won't guess the set.",
+          detail: "No exact-card comps in your Ladder sold history for that set and variant. We won't borrow another card's price.",
+          pickedLine: CH_SETGUARD.lineOf(card), readLine: "", picked: card
+        };
+        location.hash = "#/unpriced";
+        return;
+      }
+      state.liveSales = kept;
+      state.unpriced = null;
+      state.confirmed = card;
+      location.hash = "#/report";
+      return;
+    }
+    state.liveSales = null;
     if (!decision.priced) { state.unpriced = decision; location.hash = "#/unpriced"; return; }
     state.unpriced = null;
     state.confirmed = decision.picked;
@@ -560,7 +694,57 @@
       '<text x="0" y="' + (H - 6) + '" fill="#6f6b63" font-size="10.5" font-family="Manrope,sans-serif">' + (pts.length > 20 ? "52 wks ago" : "13 wks ago") + '</text><text x="' + W + '" y="' + (H - 6) + '" fill="#6f6b63" font-size="10.5" text-anchor="end" font-family="Manrope,sans-serif">Now</text></svg>';
   }
   function secHead(n, t, chip) { return '<div class="sec-head"><h2 class="h2"><span class="sec-num">' + n + '</span>' + t + '</h2>' + (chip ? '<span class="chip">' + chip + '</span>' : "") + '</div>'; }
+  function liveSoldHTML(card, rows) {
+    if (!rows || !rows.length) return '<p class="muted">No sold comps in your Ladder history for this exact card.</p>';
+    var title = [card.year, card.set, card.number ? "#" + card.number : "", card.player].filter(Boolean).join(" ");
+    var latest = rows[0];
+    var hero = '<article class="comp-hero"><div class="comp-photo-frame"><div class="comp-photo" style="display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.04);min-height:180px"><span class="muted small">Your Ladder sale</span></div></div>' +
+      '<div class="comp-cap"><div><span class="chip ok">Latest · ' + esc(latest.grade || "Raw") + '</span><b class="who">' + esc(title) + '</b>' +
+      '<span class="meta">' + esc(latest.date || "Date n/a") + " · " + esc(latest.type || "Sold") + " · " + esc(card.variant || "Exact card") + '</span></div>' +
+      '<span class="px num">' + money(latest.price) + '</span></div></article>';
+    var older = rows.slice(1).map(function (s) {
+      return '<article class="comp-older"><span style="width:72px;height:72px;border-radius:10px;background:rgba(255,255,255,.06);flex:none"></span><span><b>' + esc(title) + '</b><span class="meta">' + esc(s.date || "") + " · " + esc(s.type || "Sold") + " · " + esc(s.grade || "Raw") + '</span></span><span class="px num">' + money(s.price) + '</span></article>';
+    }).join("");
+    return hero + (older ? '<div class="comp-older-list">' + older + '</div>' : "") +
+      '<p class="small dim" style="margin:10px 0 0">Exact card only from your pasted Ladder sales. Other sets and parallels stay off this list.</p>';
+  }
+  function renderLiveReport() {
+    var c = state.confirmed || {};
+    var rows = state.liveSales || [];
+    var prices = rows.map(function (s) { return s.price; }).filter(function (n) { return n > 0; }).sort(function (a, b) { return a - b; });
+    var mid = prices.length ? prices[Math.floor(prices.length / 2)] : null;
+    var low = prices.length ? prices[0] : null;
+    var high = prices.length ? prices[prices.length - 1] : null;
+    LS.set("lastCard", {
+      id: c.id || "",
+      title: [c.year, c.set, c.number ? "#" + c.number : "", c.player].filter(Boolean).join(" "),
+      variant: c.variant || "",
+      raw: mid,
+      source: "ladder-hook"
+    });
+    var h = '<a class="link-btn" href="#/scan">' + I("left") + 'Check another</a>' +
+      '<div class="row wrap" style="gap:8px;margin:12px 0"><span class="chip ok">Live comps</span><span class="chip ok">Exact card</span><span class="chip">Your Card Ladder</span></div>' +
+      '<h1 class="h2">' + esc([c.year, c.set].filter(Boolean).join(" ")) + (c.number ? " #" + esc(c.number) : "") + " " + esc(c.player || "") + '</h1>' +
+      '<p class="muted" style="margin:4px 0 0">' + esc(c.variant || "Exact card") + '</p>' +
+      '<div class="stat4" style="margin-top:12px">' +
+        '<div class="kpi median"><span>Median · live</span><b class="num">' + money(mid) + '</b><small>' + rows.length + ' sale' + (rows.length === 1 ? "" : "s") + ' · your Ladder</small></div>' +
+        '<div class="kpi"><span>Low</span><b class="num">' + money(low) + '</b></div>' +
+        '<div class="kpi"><span>High</span><b class="num">' + money(high) + '</b></div>' +
+        '<div class="kpi"><span># sales</span><b class="num">' + rows.length + '</b><small>matched</small></div>' +
+      '</div>' +
+      gate("comps") +
+      '<p class="small muted" id="sale-note" style="margin:12px 0 8px">Sold comps from your Card Ladder · exact card.</p>' +
+      '<div id="sold-list">' + liveSoldHTML(c, rows) + '</div>' +
+      '<div class="cta-stack" style="margin-top:16px"><a class="btn btn-ghost" href="#/scan">Check another card</a></div>' +
+      flowEnd({ sample: false, leave: true }) + footer();
+    view.innerHTML = h;
+  }
   function reportScreen() {
+    if (ladderCompsLive() && state.confirmed) {
+      renderLiveReport();
+      return;
+    }
+
     D.getCardReport("PUJOLS-01TCT-T247").then(function (r) {
       var c = r.card, k = reportCalc(r), raw = r.raw, p9 = k.byG["PSA 9"];
       LS.set("lastCard", { id: c.id, title: c.year + " " + c.set + " #" + c.number + " " + c.player + (c.rookie ? " RC" : ""), variant: c.variant, raw: raw.w30.median, source: "report" });
@@ -613,7 +797,7 @@
         (s0.thin ? '<p class="small muted" id="thin-note">Thin comps — fewer than 5 sales. Treat as soft.</p>' : '<p class="small muted" id="thin-note" hidden></p>') +
         gate("comps") +
         '<div class="seg" id="sale-seg" style="margin-top:12px"><button type="button" data-sale="sold" class="on">Sold</button><button type="button" data-sale="ask">For sale now</button></div>' +
-        '<p class="small muted" id="sale-note" style="margin:8px 0">Sold comps · Card Ladder only · exact card · SAMPLE. Your AI reads these for the deal call.</p>' +
+        '<p class="small muted" id="sale-note" style="margin:8px 0">' + (ladderCompsLive() ? "Sold comps from your Card Ladder · exact card." : (ladderHookPhase() === "awaiting" ? "Ladder hook set up · waiting for sale-by-sale rows · exact card · SAMPLE." : "Sold comps wait until Card Ladder is linked · exact card · SAMPLE. Your AI reads these for the deal call.")) + '</p>' +
         '<div id="sold-list">' + soldHTML() + '</div><div id="ask-list" hidden></div>' +
         '<div class="stack" style="margin-top:12px"><a class="tool" href="#/deals/watch"><span class="tic">' + I("eye") + '</span><span class="tt"><b>Watchlist</b><span>Save this card</span></span>' + I("right") + '</a>' +
         '<a class="tool" href="#/deals/snipes"><span class="tic">' + I("target") + '</span><span class="tt"><b>Auction Watch</b><span>Reminder only. You set the max.</span></span>' + I("right") + '</a></div>' +
@@ -664,7 +848,7 @@
           view.querySelectorAll("#sale-seg button").forEach(function (o) { o.classList.toggle("on", o === b); });
           document.getElementById("sold-list").hidden = saleNow !== "sold";
           document.getElementById("ask-list").hidden = saleNow !== "ask";
-          document.getElementById("sale-note").textContent = saleNow === "ask" ? "Open-market asking prices. Not Card Ladder sold comps." : "Sold comps · Card Ladder only · exact card · SAMPLE. Your AI reads these for the deal call.";
+          document.getElementById("sale-note").textContent = saleNow === "ask" ? "Open-market asking prices. Not Card Ladder sold comps." : (ladderCompsLive() ? "Sold comps from your Card Ladder · exact card." : (ladderHookPhase() === "awaiting" ? "Ladder hook set up · waiting for sale-by-sale rows · exact card · SAMPLE." : "Sold comps wait until Card Ladder is linked · exact card · SAMPLE. Your AI reads these for the deal call."));
         };
       });
       Promise.all([D.getDeals(), D.getGems()]).then(function (res) {
@@ -978,15 +1162,221 @@
     }
     render();
   }
+  function ladderConnectSheet() {
+    var step = (state.ladderHook && state.ladderHook.uiStep) || "account";
+    var methodPick = (state.ladderHook && state.ladderHook.method) || null;
+    var pasteText = (state.ladderHook && state.ladderHook.pendingText) || "";
+    var parsePreview = null;
+    function stepChips(cur) {
+      var steps = [["account", "1 · Account"], ["method", "2 · Feed"], ["confirm", "3 · Confirm"]];
+      if (cur === "paste") cur = "method";
+      return '<div class="row wrap" style="gap:6px;margin:10px 0 4px">' + steps.map(function (s) {
+        var on = s[0] === cur;
+        return '<span class="chip' + (on ? " gold" : "") + '">' + s[1] + '</span>';
+      }).join("") + '</div>';
+    }
+    function persistDraft() {
+      state.ladderHook.uiStep = step;
+      state.ladderHook.method = methodPick;
+      state.ladderHook.pendingText = pasteText;
+      if (parsePreview && parsePreview.length) state.ladderHook.pendingRows = parsePreview;
+      saveLadderHook();
+    }
+    function render() {
+      var phase = ladderHookPhase();
+      if (phase === "live") {
+        openSheet('<div class="eyebrow">BYO sold comps</div><h2>Card Ladder live</h2>' +
+          '<div class="row" style="justify-content:center;gap:8px;margin:8px 0 12px"><span class="chip gold">' + I("check") + 'Live sale-by-sale</span></div>' +
+          '<p class="muted small" style="margin:0">Sold comps are coming from your Ladder hook.</p>' +
+          '<div class="cta-stack"><button class="btn btn-gold" id="cl-done">Done</button></div>' + flowEnd({ leave: true }), function () {
+            document.getElementById("cl-done").onclick = function () { closeSheet(); };
+          });
+        return;
+      }
+      if (phase === "live") {
+        var liveRows = state.liveSales || [];
+        var methL = (state.ladderHook && state.ladderHook.method) || "paste";
+        openSheet('<div class="eyebrow">BYO sold comps</div><h2>Card Ladder · live</h2>' +
+          '<div class="row wrap" style="gap:8px;margin:8px 0 12px"><span class="chip ok">' + I("check") + 'Live comps</span><span class="chip ok">Exact card</span></div>' +
+          '<p class="muted small" style="margin:0"><b>Sold comps from your Card Ladder.</b> ' + liveRows.length + ' exact-card sale' + (liveRows.length === 1 ? "" : "s") + ' matched for the confirmed card. Method: paste / import.</p>' +
+          '<div class="bullets" style="margin-top:12px"><div>' + I("shield") + 'No password. No scrape. User-provided rows only.</div></div>' +
+          '<div class="cta-stack"><button class="btn btn-ghost" id="cl-close">Done</button></div>', function () {
+          var done = document.getElementById("cl-close");
+          if (done) done.onclick = closeSheet;
+        });
+        return;
+      }
+      if (phase === "awaiting") {
+        var rows = (state.ladderHook && state.ladderHook.pendingRows) || [];
+        var meth = (state.ladderHook && state.ladderHook.method) || "paste";
+        var methLabel = meth === "companion" ? "Companion (coming soon)" : "Paste / import sold history";
+        openSheet('<div class="eyebrow">BYO sold comps</div><h2>Ladder hook set up</h2>' +
+          '<div class="row wrap" style="gap:8px;margin:8px 0 12px"><span class="chip gold">' + I("clock") + 'Waiting for sale-by-sale rows</span><span class="chip">Pending</span></div>' +
+          '<p class="muted small" style="margin:0"><b>Ladder hook set up · waiting for sale-by-sale rows.</b> Method: ' + esc(methLabel) + '. Confirm a card — live only when ≥1 pasted sale matches that exact set / parallel.</p>' +
+          (rows.length ? '<div class="card" style="margin-top:12px"><b style="font-size:14px">' + rows.length + ' pending sale row' + (rows.length === 1 ? "" : "s") + ' on this phone</b><div class="small muted" style="margin-top:6px">' + rows.slice(0, 4).map(function (r) { return esc(r.identity) + " · " + money(r.price) + (r.date ? " · " + esc(r.date) : ""); }).join("<br>") + (rows.length > 4 ? "<br>…" : "") + '</div></div>' : '<p class="small muted" style="margin:12px 0 0">No sale rows stored yet. Paste an export anytime from Settings → Card Ladder.</p>') +
+          '<div class="bullets" style="margin-top:12px"><div>' + I("shield") + 'No password. No scrape. User-provided rows only.</div><div>' + I("check") + 'Live on Confirm when ≥1 exact-card sale matches (setguard).</div></div>' +
+          '<div class="cta-stack"><button class="btn btn-gold" id="cl-done">Got it</button>' +
+          '<button class="btn btn-ghost" id="cl-more">' + I("upload") + 'Add sold history</button>' +
+          '<button class="btn btn-ghost" id="cl-clear">Clear Ladder hook</button></div>' + flowEnd({ leave: true }), function () {
+            document.getElementById("cl-done").onclick = function () { closeSheet(); if (parseHash().route === "scan") scanScreen(); else go(); };
+            document.getElementById("cl-more").onclick = function () {
+              state.ladderHook.status = "none";
+              state.ladderHook.uiStep = "paste";
+              methodPick = "paste";
+              state.ladderHook.method = "paste";
+              saveLadderHook();
+              step = "paste";
+              render();
+            };
+            document.getElementById("cl-clear").onclick = function () {
+              state.ladderHook = defaultLadderHook();
+              state.liveSales = null;
+              state.confirmed = null;
+              saveLadderHook();
+              toast("Ladder hook cleared. Comps still wait.");
+              closeSheet();
+              if (parseHash().route === "scan") scanScreen(); else go();
+            };
+          });
+        return;
+      }
+      /* Not linked — hook wizard */
+      var body = "";
+      var cta = "";
+      if (step === "account") {
+        body = stepChips("account") +
+          '<ol class="vsteps" style="margin-top:8px"><li><span class="sn">1</span><div><b>Have Card Ladder Pro / an account</b><span>Sold comps come from <b>your</b> Ladder. CardHound does not replace Ladder and does not log in for you.</span></div></li></ol>' +
+          '<p class="muted small" style="margin:12px 0 0">You keep your Ladder subscription. CardHound only accepts sold comps you choose to feed in.</p>';
+        cta = '<div class="cta-stack"><button class="btn btn-gold" id="cl-next">I have Card Ladder — next</button>' +
+          '<button class="btn btn-ghost" id="cl-defer">Continue — name cards; comps wait</button></div>';
+      } else if (step === "method") {
+        body = stepChips("method") +
+          '<p class="muted small" style="margin:0">Choose how you will feed sold comps into CardHound.</p>' +
+          '<button type="button" class="tool" id="cl-m-paste" style="margin-top:12px"><span class="srcmono' + (methodPick === "paste" ? " on" : "") + '">A</span><span class="tt"><b>Paste / import sold history</b><span>CSV or paste of sale lines you export or copy from your own Ladder. Identity + sale price + date only.</span></span>' + (methodPick === "paste" ? '<span class="chip gold">Selected</span>' : "") + '</button>' +
+          '<button type="button" class="tool" id="cl-m-comp" style="margin-top:8px"><span class="srcmono">B</span><span class="tt"><b>CardHound Companion</b><span>Side panel while you are signed into Ladder in your browser.</span></span><span class="chip gold">Coming soon</span></button>' +
+          (methodPick === "companion" ? '<p class="small muted" style="margin:10px 0 0">Companion is labeled Coming soon — it does not pretend live. Pick paste / import to set up a hook now.</p>' : "");
+        cta = '<div class="cta-stack"><button class="btn btn-gold" id="cl-next"' + (methodPick === "paste" ? "" : " disabled") + '>' + (methodPick === "paste" ? "Continue with paste / import" : "Select paste / import") + '</button>' +
+          '<button class="btn btn-ghost" id="cl-back">Back</button></div>';
+      } else if (step === "paste") {
+        var prev = parsePreview || (state.ladderHook && state.ladderHook.pendingRows) || [];
+        body = stepChips("method") +
+          '<p class="muted small" style="margin:0">Paste sold lines or choose a CSV you exported from your own Ladder. CardHound keeps identity, sale price, and date — user-provided only.</p>' +
+          '<div class="field" style="margin-top:12px"><label for="cl-paste">Sold history (paste)</label><textarea class="input" id="cl-paste" rows="6" style="height:auto;padding:12px 14px" placeholder="One sale per line, e.g.&#10;2024 Topps Chrome #1 Player — $120 — 2026-09-01">' + esc(pasteText) + '</textarea></div>' +
+          '<div class="cta-stack" style="margin-top:8px"><label class="btn btn-ghost" for="cl-csv">' + I("upload") + 'Choose CSV export</label><input class="file-input" id="cl-csv" type="file" accept=".csv,text/csv,text/plain"><button class="btn btn-ghost" id="cl-parse" type="button">Parse on this phone</button></div>' +
+          (prev.length ? '<div class="card" style="margin-top:12px"><b style="font-size:14px">' + prev.length + ' valid sale row' + (prev.length === 1 ? "" : "s") + ' ready (pending)</b><div class="small muted" style="margin-top:6px">' + prev.slice(0, 5).map(function (r) { return esc(r.identity) + " · " + money(r.price) + (r.date ? " · " + esc(r.date) : ""); }).join("<br>") + (prev.length > 5 ? "<br>…" : "") + '</div><p class="small muted" style="margin:8px 0 0"><span class="chip">Pending</span> Stored on this phone. Live comps unlock on Confirm only when ≥1 sale matches the exact card.</p></div>' : '<p class="small muted" style="margin:12px 0 0">Needs at least one line with a sale price. Messy paste is ok — rows without a price are dropped.</p>');
+        cta = '<div class="cta-stack"><button class="btn btn-gold" id="cl-next">Continue to confirm</button><button class="btn btn-ghost" id="cl-back">Back</button></div>';
+      } else {
+        var n = ((parsePreview || (state.ladderHook && state.ladderHook.pendingRows) || [])).length;
+        body = stepChips("confirm") +
+          '<ol class="vsteps" style="margin-top:8px"><li><span class="sn">3</span><div><b>Confirm — comps unlock only after real sales appear</b><span>Setting up the hook does <b>not</b> unlock live prices. After Confirm, live only when ≥1 pasted sale matches that exact set / parallel; otherwise UNPRICED.</span></div></li></ol>' +
+          '<div class="bullets" style="margin-top:12px"><div>' + I("shield") + 'No password. No cookies. No scrape.</div><div>' + I("check") + 'Method: paste / import sold history' + (n ? " · " + n + " pending row" + (n === 1 ? "" : "s") : "") + '</div><div>' + I("clock") + 'After confirm: “Ladder hook set up · waiting for sale-by-sale rows.”</div></div>';
+        cta = '<div class="cta-stack"><button class="btn btn-gold" id="cl-confirm">' + I("check") + 'Set up Ladder hook</button><button class="btn btn-ghost" id="cl-back">Back</button></div>';
+      }
+      openSheet('<div class="eyebrow">BYO sold comps</div><h2>Connect Card Ladder</h2>' +
+        '<p class="muted small" style="margin:0">Live sold comps come from <b>your</b> Card Ladder. Hook flow only — CardHound never asks for your password and never scrapes.</p>' +
+        body +
+        '<div class="bullets" style="margin-top:14px"><div>' + I("shield") + 'No password. No cookies. Ever.</div><div>' + I("close") + 'Rejected: scrape, password capture, or fake “connected → live prices.”</div></div>' +
+        cta + flowEnd({ leave: true }), function () {
+          var defer = document.getElementById("cl-defer");
+          if (defer) defer.onclick = function () {
+            state.ladderDeferred = true;
+            LS.set("ladderDeferred", true);
+            closeSheet();
+            toast("Comps wait until Card Ladder is linked.");
+            if (parseHash().route === "scan") scanScreen(); else go();
+          };
+          var back = document.getElementById("cl-back");
+          if (back) back.onclick = function () {
+            if (step === "confirm") step = (methodPick === "paste" ? "paste" : "method");
+            else if (step === "paste") step = "method";
+            else if (step === "method") step = "account";
+            persistDraft();
+            render();
+          };
+          var next = document.getElementById("cl-next");
+          if (next) next.onclick = function () {
+            if (step === "account") {
+              state.ladderHook.accountOk = true;
+              step = "method";
+            } else if (step === "method") {
+              if (methodPick !== "paste") { toast("Pick paste / import — Companion is coming soon."); return; }
+              step = "paste";
+            } else if (step === "paste") {
+              var ta = document.getElementById("cl-paste");
+              if (ta) pasteText = ta.value;
+              if (!parsePreview || !parsePreview.length) {
+                parsePreview = parseLadderSaleLines(pasteText);
+              }
+              state.ladderHook.pendingText = pasteText;
+              state.ladderHook.pendingRows = parsePreview || [];
+              step = "confirm";
+            }
+            persistDraft();
+            render();
+          };
+          var mp = document.getElementById("cl-m-paste");
+          if (mp) mp.onclick = function () { methodPick = "paste"; persistDraft(); render(); };
+          var mc = document.getElementById("cl-m-comp");
+          if (mc) mc.onclick = function () { methodPick = "companion"; persistDraft(); render(); };
+          var ta = document.getElementById("cl-paste");
+          if (ta) ta.oninput = function () { pasteText = ta.value; };
+          var parseBtn = document.getElementById("cl-parse");
+          if (parseBtn) parseBtn.onclick = function () {
+            var field = document.getElementById("cl-paste");
+            if (field) pasteText = field.value;
+            parsePreview = parseLadderSaleLines(pasteText);
+            state.ladderHook.pendingText = pasteText;
+            state.ladderHook.pendingRows = parsePreview;
+            saveLadderHook();
+            if (!parsePreview.length) toast("No sale rows found yet — need a price on each line.");
+            else toast(parsePreview.length + " sale row" + (parsePreview.length === 1 ? "" : "s") + " on this phone (live after Confirm match).");
+            render();
+          };
+          var csv = document.getElementById("cl-csv");
+          if (csv) csv.onchange = function () {
+            var file = csv.files && csv.files[0]; if (!file) return;
+            var rd = new FileReader();
+            rd.onload = function () {
+              pasteText = String(rd.result || "").slice(0, 200000);
+              parsePreview = parseLadderSaleLines(pasteText);
+              state.ladderHook.pendingText = pasteText;
+              state.ladderHook.pendingRows = parsePreview;
+              saveLadderHook();
+              toast(parsePreview.length ? (parsePreview.length + " pending row" + (parsePreview.length === 1 ? "" : "s") + " from " + file.name) : ("Read " + file.name + " — no sale prices found yet."));
+              render();
+            };
+            rd.readAsText(file.slice(0, 200000));
+          };
+          var conf = document.getElementById("cl-confirm");
+          if (conf) conf.onclick = function () {
+            state.ladderHook.status = "awaiting";
+            state.ladderHook.method = "paste";
+            state.ladderHook.accountOk = true;
+            state.ladderHook.uiStep = "confirm";
+            if (parsePreview && parsePreview.length) state.ladderHook.pendingRows = parsePreview;
+            if (pasteText) state.ladderHook.pendingText = pasteText;
+            saveLadderHook();
+            /* Never set state.conn.cardladder — that was the old demo live unlock. */
+            if (state.conn && state.conn.cardladder) { delete state.conn.cardladder; saveConn(); }
+            state.ladderDeferred = true;
+            LS.set("ladderDeferred", true);
+            toast("Ladder hook set up · waiting for sale-by-sale rows.");
+            render();
+          };
+        });
+    }
+    render();
+  }
   function connectSheet(id) {
     var s = srcById(id); if (!s) return;
-    if (id === "cardladder" && !isConnected(id)) {
-      openSheet('<div class="eyebrow">Sold comps only</div><h2>Connect Card Ladder</h2>' +
-        '<p class="muted small" style="margin:0">' + esc(CH_AI.job.ladder) + ' CardHound does not sell a separate price feed.</p>' +
-        '<div class="cta-stack"><button class="btn btn-gold" id="cl-go" type="button">Connect Card Ladder on this phone</button></div>' +
-        '<p class="small dim" style="text-align:center;margin-top:12px">No password is stored here.</p>' + flowEnd({ leave: true }), function () {
-          document.getElementById("cl-go").onclick = function () { state.conn.cardladder = true; saveConn(); connectSheet("cardladder"); };
-        });
+    if (id === "cardladder") {
+      ladderConnectSheet();
+      return;
+    }
+    if (id === "feed") {
+      openSheet('<div class="eyebrow">Optional</div><h2>CardHound data feed</h2>' +
+        '<p class="muted small" style="margin:0">Optional path — not the front-door comps story. Live sold comps come from your Card Ladder when linked.</p>' +
+        '<div class="cta-stack"><button class="btn btn-ghost" data-connect="cardladder">' + I("plug") + 'Card Ladder (BYO comps)</button></div>' + flowEnd({ leave: true }));
       return;
     }
     if (s.status === "importonly") { importSheet(); return; }
@@ -1009,7 +1399,7 @@
     var unl = unlocks.length ? '<div class="h3" style="margin:4px 0 8px">Unlocks</div><div class="row wrap" style="gap:6px;margin-bottom:6px">' + unlocks.map(function (u) { return '<span class="chip">' + esc(u.charAt(0).toUpperCase() + u.slice(1)) + '</span>'; }).join("") + '</div>' : "";
     if (s.status === "na" || s.status === "partner" || s.status === "coming" || s.status === "feed") {
       var badge = { na: "Not available yet", partner: "Pending partnership", coming: "Coming soon", feed: "Coming soon" }[s.status];
-      var extra = id === "companion" ? '<ol class="vsteps"><li><span class="sn">1</span><div><b>Sign in to Card Ladder in your own browser</b><span>As you normally do. CardHound never sees your password or cookies.</span></div></li><li><span class="sn">2</span><div><b>Open any card page</b><span>Companion recognizes which card it is.</span></div></li><li><span class="sn">3</span><div><b>Open the CardHound side panel</b><span>Our call, Gem Hunt hits, Auction Watch, add to watchlist, add to portfolio. Comps come from the Card Ladder account you connect. This preview does not add a separate price feed.</span></div></li></ol>' : "";
+      var extra = id === "companion" ? '<ol class="vsteps"><li><span class="sn">1</span><div><b>Sign in to Card Ladder in your own browser</b><span>As you normally do. CardHound never sees your password or cookies.</span></div></li><li><span class="sn">2</span><div><b>Open any card page</b><span>Companion recognizes which card it is.</span></div></li><li><span class="sn">3</span><div><b>Open the CardHound side panel</b><span>Deal call, Gem Hunt hits, Auction Watch, watchlist, portfolio. Connect Card Ladder in Settings for sold comps in Confirm.</span></div></li></ol>' : "";
       openSheet(top + '<h2>' + esc(s.name) + '</h2><span class="chip gold" style="margin:4px 0 10px">' + badge + '</span><p class="muted small" style="margin:10px 0 0">' + esc(s.blurb) + '</p>' + extra +
         '<div class="cta-stack"><button class="btn btn-ghost" disabled>' + I("clock") + badge + '</button><button class="btn btn-ghost" data-connect="import">' + I("upload") + 'Import my collection instead</button></div>' + safe);
       return;
@@ -1018,8 +1408,9 @@
     if (s.method === "apikey") body = '<div class="field"><label for="key">' + esc(s.keyLabel) + '</label><input class="input" id="key" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste your token"></div>' +
       '<p class="small muted" style="margin:8px 0 0">' + esc(s.keyHelp) + '</p><div class="note" style="margin-top:12px">' + I("key") + '<div>Demo: the token is stored only on this device (localStorage) and never sent anywhere. It\'s an API token, never your password.</div></div>';
     else if (s.method === "oauth") body = '<ol class="vsteps"><li><span class="sn">1</span><div><b>Continue to the official eBay sign-in</b><span>You sign in on eBay\'s own page. CardHound never sees your password.</span></div></li><li><span class="sn">2</span><div><b>Approve access</b><span>Watchlist, saved searches and listings. Automatic bidding is pending eBay approval.</span></div></li></ol>';
+    var simLabel = s.method === "apikey" ? "Save token (demo)" : (s.method === "oauth" ? "Continue with eBay (simulated)" : "Connect " + s.name + " (demo)");
     openSheet(top + '<h2>Connect your ' + esc(s.name) + '</h2><p class="muted small" style="margin:0">' + esc(s.blurb) + '</p>' + body + safe + unl +
-      '<div class="cta-stack"><button class="btn btn-gold" id="sim">' + I(s.method === "apikey" ? "key" : "plug") + (s.method === "apikey" ? "Save token (demo)" : "Continue with eBay (simulated)") + '</button></div>' +
+      '<div class="cta-stack"><button class="btn btn-gold" id="sim">' + I(s.method === "apikey" ? "key" : "plug") + simLabel + '</button></div>' +
       flowEnd({ leave: true }), function () {
         document.getElementById("sim").onclick = function () {
           if (s.method === "apikey") { var k = document.getElementById("key").value.trim(); if (k.length < 6) { toast("Paste your token first."); return; } state.keys[id] = k.slice(-4); }
@@ -1037,7 +1428,7 @@
   }
   function moreScreen() {
     var yours = [["#/daily", "report", "Daily report", "Movers and gems, tailored by you"], ["#/ask", "mic", "Ask", "Hunts and questions. Not on Home."], ["#/ledger", "wallet", "Portfolio", "Buys, cost, and value on this phone"], ["#/deals/watch", "eye", "Watchlist", "Cards and listings you are watching"], ["#/deals/snipes", "target", "Auction Watch", "Reminders. You set the max."], ["#/deals", "deals", "For sale", "Asking prices versus sample comps"], ["#/lists/gems", "gem", "Gem Hunt", "Hard-to-find and mislabeled listings"]];
-    var tools = [["#/lists/movers", "markets", "Lists", "Movers, highs, picks, searched, gems"], ["#/tool/alerts", "bell", "Alerts", "Under-comp and new-high alerts"], ["#/settings", "sliders", "Settings", "Card Ladder, import, eBay, PSA"], ["#/tool/fees", "calc", "Fee and net", "What you keep after eBay fees"], ["#/tool/roi", "layers", "Grading ROI", "Raw versus graded after fees"], ["#/tool/variant", "list", "Exact variant check", "Parallel, refractor, reprint, slab"], ["#/tool/offer", "handshake", "Best Offer helper", "Suggested offer and walk-away"]];
+    var tools = [["#/lists/movers", "markets", "Lists", "Movers, highs, picks, searched, gems"], ["#/tool/alerts", "bell", "Alerts", "Under-comp and new-high alerts"], ["#/settings", "sliders", "Settings", "Card Ladder, AI, import, eBay, PSA"], ["#/tool/fees", "calc", "Fee and net", "What you keep after eBay fees"], ["#/tool/roi", "layers", "Grading ROI", "Raw versus graded after fees"], ["#/tool/variant", "list", "Exact variant check", "Parallel, refractor, reprint, slab"], ["#/tool/offer", "handshake", "Best Offer helper", "Suggested offer and walk-away"]];
     if (window.CH_APP && window.CH_APP.moreItemsTop && window.CH_APP.moreItemsTop.length) {
       yours = window.CH_APP.moreItemsTop.map(function (t) { return ["#/" + t[0], t[1], t[2], t[3]]; }).concat(yours);
     }
@@ -1046,7 +1437,7 @@
       '<h2 class="h3">Your stuff</h2>' + yours.map(function (t) { return toolLink(t[0], t[1], t[2], t[3]); }).join("") +
       '<h2 class="h3" style="margin-top:18px">Tools</h2>' + tools.map(function (t) { return toolLink(t[0], t[1], t[2], t[3]); }).join("") +
       '<div class="card" style="margin-top:14px"><div class="row between"><span class="h3">New high alerts</span><span class="chip">SAMPLE</span></div><p class="small muted">An alert when a sale is an all-time or 90-day high for that exact card.</p><div class="cta-stack"><button class="btn btn-ghost" id="boom-pv" type="button">Preview alert</button><button class="btn btn-ghost" id="boom-st" type="button">Alert settings</button></div></div>' +
-      '<div class="sec card"><div class="h3" style="margin-bottom:8px">About this demo</div><p class="small muted" style="margin:0">Data source: <b style="color:var(--text)">' + esc(D.name) + '</b>. Sold prices here are invented sample data standing in for Card Ladder. Your AI would read them for a deal call and a chart, and hunt the open market for buys. Nothing is bought, bid, or offered. A hunt leaves this phone only after you agree.</p></div>' +
+      '<div class="sec card"><div class="h3" style="margin-bottom:8px">About this demo</div><p class="small muted" style="margin:0">Data source: <b style="color:var(--text)">' + esc(D.name) + '</b>. Sold prices here are invented SAMPLE data. Live sold comps wait on your Card Ladder hook — this preview does not unlock them. Your AI does deal calls and open-market hunts. Nothing is bought, bid, or offered. A hunt leaves this phone only after you agree.</p></div>' +
       legalLinks() + footer();
     var bp = document.getElementById("boom-pv"); if (bp && BOOM) bp.onclick = function () { BOOM.preview(); };
     var bs = document.getElementById("boom-st"); if (bs && BOOM) bs.onclick = function () { BOOM.settingsSheet(); };
@@ -1110,20 +1501,25 @@
     });
   }
   function statusPill(s) {
+    if (s.id === "cardladder") {
+      if (ladderCompsLive()) return '<span class="status st-on">Live comps</span>';
+      if (ladderHookPhase() === "awaiting") return '<span class="status st-soon">Awaiting sales</span>';
+      return '<span class="status st-off">Not linked</span>';
+    }
     if (isConnected(s.id)) return '<span class="status st-on">' + (s.id === "import" ? "Imported (demo)" : "Connected (demo)") + '</span>';
     return { available: '<span class="status st-off">Not connected</span>', coming: '<span class="status st-soon">Coming soon</span>', partner: '<span class="status st-soon">Pending partnership</span>', na: '<span class="status st-off">Not available yet</span>', importonly: '<span class="status st-soon">Import only</span>' }[s.status] || "";
   }
   function connectionsScreen() {
     var settings = parseHash().route === "settings";
-    var groups = [["Connect now", ["import", "ebay", "psa", "cardladder"]], ["On the way", ["companion"]], ["Import only or not available yet", ["collx", "marketmovers", "pricecharting", "cardhedge", "tcgplayer", "130point"]]];
+    var groups = [["Connect now", ["cardladder", "import", "ebay", "psa"]], ["On the way", ["companion"]], ["Import only or not available yet", ["collx", "marketmovers", "pricecharting", "cardhedge", "feed", "tcgplayer", "130point"]]];
     var aiNow = CH_AI.normalize(state.ai);
     var aiWho = aiNow.provider ? CH_AI.byId(aiNow.provider) : null;
     view.innerHTML = '<div class="eyebrow">' + (settings ? "Settings" : "Connections") + '</div><h1 class="h1" style="font-size:28px">' + (settings ? "Settings" : "Bring your own accounts") + '</h1>' +
-      '<p class="lead">Connect accounts you already have. Never a password.</p>' +
+      '<p class="lead">BYO Card Ladder for sold comps, BYO AI for deal calls. Never a password.</p>' +
       '<button type="button" class="tool" id="ai-settings"><span class="srcmono' + (aiWho ? " on" : "") + '">AI</span><span class="tt"><b>Your AI</b><span>' + esc(aiWho ? aiWho.name + (aiSecret() ? " · …" + CH_AI.maskKey(aiSecret()) : " · add your key") : CH_AI.job.aiShort) + '</span></span></button>' +
       groups.map(function (g) {
         return '<div class="group-h"><h3 class="h3">' + g[0] + '</h3></div>' + g[1].map(function (id) {
-          var s = srcById(id), on = isConnected(id);
+          var s = srcById(id), on = s.id === "cardladder" ? (ladderHookPhase() !== "none") : isConnected(id);
           return '<button class="tool" data-connect="' + s.id + '"><span class="srcmono ' + (on ? "on" : "") + '">' + esc(s.mono) + '</span><span class="tt"><b>' + esc(s.name) + '</b><span>' + esc(s.how) + '</span></span>' + statusPill(s) + '</button>';
         }).join("");
       }).join("") +

@@ -37,11 +37,17 @@
   function variantKey(v) {
     var s = norm(variantHead(v)).replace(/non refractor/g, " ").replace(/\s+/g, " ").trim();
     if (!s) return "";
+    /* Seller slang: Green Cracked Ice ≡ Green Ice. Bare "Cracked Ice" → "ice" (no invented color). */
+    s = s.replace(/\bcracked\s+ice\b/g, "ice").replace(/\s+/g, " ").trim();
     var serial = (s.match(/\/\d+/) || [""])[0];
     var found = PARALLEL_WORDS.filter(function (w) { return s.indexOf(w) > -1; });
-    if (found.length || serial) return (found.join("+") || "parallel") + serial;
-    if (/^base\b/.test(s) || s === "raw") return "base";
-    return "other:" + s;
+    if (found.length) return found.join("+") + serial;
+    var body = s.replace(/\/\d+/g, " ").replace(/\s+/g, " ").trim();
+    if (/^base\b/.test(body) || body === "raw") return "base";
+    /* Keep named finish/color (teal ice /225) — never collapse to bare parallel/NNN. */
+    if (body) return "other:" + body + serial;
+    if (serial) return "parallel" + serial;
+    return "";
   }
   function parseCardLine(name, variant) {
     var s = String(name || "").trim();
@@ -188,6 +194,7 @@
     card = card || {};
     return (sales || []).filter(function (s) {
       if (!s || s.excluded) return false;
+      if (s.year && card.year && String(s.year).slice(0, 4) !== String(card.year).slice(0, 4)) return false;
       if (s.set && productLine(card.set) && productLine(s.set) !== productLine(card.set)) return false;
       if (s.number && card.number && normNum(s.number) !== normNum(card.number)) return false;
       if (s.variant && card.variant && variantKey(s.variant) && variantKey(card.variant) && variantKey(s.variant) !== variantKey(card.variant)) return false;
