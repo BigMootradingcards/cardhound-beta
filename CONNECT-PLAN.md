@@ -1,5 +1,7 @@
 # CardHound connect plan (data path)
 
+> **Product lock 2026-10-06:** BYO Card Ladder + BYO AI. Comps = user’s Ladder connection. Front-door if missing: “You need Card Ladder for this to work correctly” + efficiency pitch. Do **not** center this plan on Ladder API/scrape blockers as the product story. Card Hedge cancel **not** resumed. Full lock: `../docs/BYO_LADDER_GATE.md` (app), `PRODUCT_LOCK_UX.md` (preview).
+
 Status: plan only. The shared beta runs on **SampleAdapter** with the Sample data badge, whether or not anything is "connected". Every connection in the demo is simulated and stored only in the browser's localStorage.
 Decision source: BigM00's research in `../DATA-FEED-OPTIONS.md` (Oct 4, 2026). That file is research, not legal advice; a lawyer reviews before the paid launch.
 
@@ -33,8 +35,19 @@ Inputs: a CSV, a screenshot of the user's own collection page, or PSA/BGS/SGC/CG
 - Technical shape: Manifest V3, a content script that reads identity fields from the open page, and a side panel (`chrome.sidePanel`) that calls CardHound. Messaging via `chrome.runtime` only, with no page data persisted.
 - ⚠️ **LEGAL REVIEW REQUIRED BEFORE LAUNCH.** Even identity-only reading is a gray zone under Card Ladder's "manual or automatic device ... gather Content" clause. Ship only with Card Ladder's written consent or a lawyer's sign-off.
 
-## 5. Card Ladder (official) — tile only, "Pending partnership"
-Only via a written agreement with Card Ladder/Collectors. Until then, use Import my collection. Stub: `js/data/cardladder-user-adapter.js`.
+## 5. Card Ladder (BYO comps) — hook UX (step 2)
+
+**Sellable comps path:** user connects **their** Card Ladder (BYO). Front-door gate when missing (see `cardhound-app/docs/BYO_LADDER_GATE.md`).
+
+**Connect sheet states (preview + friends-beta-ship):**
+1. **Not linked** — wizard: (a) Have Card Ladder Pro/account → (b) Choose feed method → (c) Confirm — comps unlock only after real sales appear.
+2. **Hook methods (honest):**
+   - **A. Paste / import sold history** — user exports or copies sale lines from their own Ladder (CSV or paste). Keep identity + sale price + date only. Parser stub stores **pending** rows on-device; SAMPLE stays until step 3 wires ≥1 valid sale for the confirmed card into live comps.
+   - **B. CardHound Companion** — Coming soon (side panel while user is signed into Ladder in their browser). Do not pretend live.
+3. **Linked / awaiting sales** — “Ladder hook set up · waiting for sale-by-sale rows.” Does **not** set a demo `conn.cardladder` live unlock. `ladderCompsLive()` stays false.
+4. **Live** — only when `ladderCompsLive()` is true (step 3 — not done). Real sale-by-sale rows for the confirmed card.
+
+**Hard rules:** no scrape, no password/cookie capture, no fake “connected → live prices.” Adapter: `js/data/cardladder-user-adapter.js` (BYO user hook messaging; rejects scrape methods; `isSample: true` until live rows). Import my collection remains for identity/cost only (drop CL values) — separate from sold-history paste.
 
 ## 6. Licensed feed — adapter stubbed
 `js/data/licensed-feed-adapter.js` maps the app's adapter methods to Card Hedge-style endpoints (card-search, image-match, comps, prices-by-card, top-movers, cert). Commercial use needs an Enterprise or commercial license (see DATA-FEED-OPTIONS §4). Keys stay on a CardHound server, never in this static site. Switch adapters with one line in `js/config.js`.

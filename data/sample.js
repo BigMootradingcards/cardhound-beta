@@ -9,12 +9,26 @@ window.CARDHOUND_SAMPLE = {
   "footer": "Demo with sample data. Not real prices.",
   "asOf": "Sample snapshot, Oct 4, 2026",
   "categories": [
+   "Disney",
+   "Marvel",
+   "Football",
    "Basketball",
    "Baseball",
-   "Football",
    "Hockey",
    "Pokémon",
-   "Magic"
+   "Magic",
+   "Yu-Gi-Oh!",
+   "Lorcana",
+   "One Piece",
+   "Star Wars",
+   "Simpsons",
+   "WWE",
+   "Soccer",
+   "Golf",
+   "Racing",
+   "Garbage Pail Kids",
+   "Digimon",
+   "Flesh and Blood"
   ],
   "sets": [
    "Panini Prizm",

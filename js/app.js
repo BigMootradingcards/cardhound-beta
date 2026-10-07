@@ -18,6 +18,9 @@
     ladderDeferred: !!LS.get("ladderDeferred", false),
     ladderHook: LS.get("ladderHook", null),
     snipes: LS.get("snipes", []),
+    intent: LS.get("intent", null),
+    huntSites: LS.get("huntSites", null),
+    hunt: LS.get("hunt", null),
     alerts: LS.get("alerts", { threshold: 20, on: true }),
     scopes: { movers: { view: "overall", value: null }, picks: { view: "overall", value: null }, searched: { view: "overall", value: null }, highs: { view: "overall", value: null } },
     moversDir: "up", scopeSetQ: "", scopeCatQ: "", dailyCatQ: "", huntKind: "", meta: null, timers: []
@@ -154,9 +157,9 @@
     openGate({
       title: "This leaves your phone",
       lines: [
-        "This sends your hunt to the AI you connected.",
-        "Your words, and the photo if you added one, leave this phone.",
-        "Sold prices stay SAMPLE. A reply is live only if your AI answers."
+        "This sends your hunt to the AI you connected (OpenAI, Anthropic, or Google), using your key.",
+        "Your words, and the photo if you added one, leave this phone. Your AI's web search looks at public pages only.",
+        "Sold comps come only from your Card Ladder. We never show sample prices as real."
       ],
       primary: "Continue",
       secondary: "Not now",
@@ -250,9 +253,9 @@
   (new Image()).src = "img/sample-card-studio.jpg";
 
   var TABS = [
-    { id: "scan", label: "Check", icon: "scan", match: ["scan", "analyze", "match", "confirm", "report", "unpriced"] },
+    { id: "scan", label: "Hunt", icon: "search", match: ["scan", "hunt", "analyze", "match", "confirm", "report", "unpriced"] },
     { id: "lists", label: "Lists", icon: "markets", match: ["lists", "markets"] },
-    { id: "more", label: "More", icon: "more", match: ["more", "connections", "settings", "tool", "ask", "ledger", "deals", "daily"] }
+    { id: "more", label: "More", icon: "more", match: ["more", "intent", "sites", "connections", "settings", "tool", "ask", "ledger", "deals", "daily"] }
   ];
   function renderTabs(route) {
     document.getElementById("tabbar").innerHTML = TABS.map(function (t) {
@@ -273,7 +276,10 @@
   function go() {
     clearTimers(); closeSheet(); state.connDirty = false; if (BOOM) BOOM.close(true);
     var p = parseHash();
+    if (!state.intent && ["start", "intent", "sites"].indexOf(p.route) < 0) { location.replace("#/start/intent"); p = parseHash(); }
     var fn = ROUTES[p.route] || ROUTES.scan;
+    var badge = document.querySelector(".badge-sample"); if (badge) badge.style.display = ["scan", "hunt", "start", "intent", "sites"].indexOf(p.route) > -1 ? "none" : "";
+    var tb = document.getElementById("tabbar"); if (tb) tb.style.display = p.route === "start" ? "none" : "";
     renderTabs(ROUTES[p.route] ? p.route : "scan");
     view.style.animation = "none"; void view.offsetWidth; view.style.animation = "";
     fn(p);
@@ -324,12 +330,13 @@
       };
     });
   }
-  function aiSheet() {
+  function aiSheet(opts) {
+    opts = opts || {};
     var cur = CH_AI.normalize(state.ai);
     var pick = cur.provider || "chatgpt";
     var chosen = CH_AI.byId(pick);
     var held = aiSecret();
-    openSheet('<div class="eyebrow">Your AI</div><h2>' + (cur.provider ? "Your AI" : "Connect your AI") + '</h2>' +
+    openSheet('<div class="eyebrow">Your AI</div><h2>' + esc(opts.title || (cur.provider ? "Your AI" : "Connect your AI")) + '</h2>' +
       '<p class="muted small" style="margin:0">' + esc(CH_AI.job.ai) + ' Card Ladder supplies the sold comps. It does not find cards to buy.</p>' +
       jobSplitHTML() +
       '<div class="ai-picks" role="radiogroup" aria-label="Preferred AI">' + aiPickHTML(pick) + '</div>' +
@@ -350,6 +357,7 @@
           closeSheet();
           var name = CH_AI.byId(pick);
           toast((name ? name.name : "AI") + " connected on this phone.");
+          if (opts.then) { opts.then(); return; }
           if (parseHash().route === "scan") scanScreen(); else go();
         };
         var off = document.getElementById("ai-off");
@@ -361,97 +369,50 @@
         };
       });
   }
+  /* HOME — the hunt box leads. Photo ID is secondary. */
+  var HUNT_EXAMPLES = {
+    flip: ["98 Chrome rookies PSA 9 under $150", "Raw Wemby Prizm under comp", "Pokémon slabs priced under recent sales"],
+    hold: ["Clean Jordan inserts under $300", "Ohtani rookies with great centering", "Charizard I'd keep forever"],
+    grade: ["Cards Card Doc could clean that would grade higher", "Raw 90s Chrome stars, sharp corners", "Raw Pokémon holos with good centering"],
+    other: ["98 Chrome rookies PSA 9 under $150", "Cards Card Doc could clean that would grade higher", "Star Wars autos under $100"]
+  };
+  function intentNow() { return CH_HUNT.intentById(state.intent) || null; }
+  function ladderBannerHTML() {
+    var phase = ladderHookPhase();
+    var t = phase === "awaiting" ? "Card Ladder hook set · waiting for sales" : "Live sold comps need your Card Ladder";
+    return '<button type="button" class="ai-banner" id="ladder-open"><span><b>' + t + '</b><span>Required for live comps. Hunting works without it.</span></span>' + I("right") + '</button>';
+  }
+  function aiBannerHTML() {
+    var ai = CH_AI.normalize(state.ai), who = ai.provider ? CH_AI.byId(ai.provider) : null;
+    if (who && canLive()) return '<button type="button" class="ai-banner on" id="ai-open"><span><b>' + esc(who.name) + ' hunts for you</b><span>Uses its web search · key on this phone …' + esc(CH_AI.maskKey(aiSecret())) + '</span></span><span class="chip">Change</span></button>';
+    return '<button type="button" class="ai-banner" id="ai-open"><span><b>Connect your AI to hunt</b><span>ChatGPT, Claude, or Gemini. Your key stays on this phone.</span></span>' + I("right") + '</button>';
+  }
   function scanScreen() {
-    var ai = CH_AI.normalize(state.ai);
-    var settled = CH_AI.settled(ai);
-    var live = CH_AI.connected(ai);
-    var who = live ? CH_AI.byId(ai.provider) : null;
-    var ladderLive = ladderCompsLive();
-    var ladderDeferred = !!state.ladderDeferred;
-    var ladderPhase = ladderHookPhase();
-    var needLadderGate = !ladderLive && !ladderDeferred && ladderPhase === "none";
+    var it = intentNow();
+    var ex = HUNT_EXAMPLES[(it && it.id) || "other"];
     var frame = state.photo
       ? '<img class="photo" src="' + state.photo + '" alt="Your card photo preview"><div class="corners"><i></i><i></i><i></i><i></i></div>'
       : '<div class="grid-ov"></div><div class="corners"><i></i><i></i><i></i><i></i></div><div class="scan-empty"><div class="ring">' + I("camera") + '</div><b>Frame the card</b>Slab or raw.</div>';
-    var photoBtn = state.photo
-      ? '<button class="btn ' + (settled ? "btn-gold" : "btn-ghost") + '" id="go-analyze" type="button">Analyze this card</button><label class="btn btn-ghost" for="file">Retake</label>'
-      : '<label class="btn ' + (settled ? "btn-gold" : "btn-ghost") + '" for="file">Take or upload a photo</label>';
-    var start = "";
-    if (needLadderGate) {
-      start = '<section class="ai-start" aria-label="Card Ladder required">' +
-        '<div class="eyebrow">Start here</div><h1 class="h1">You need Card Ladder for this to work correctly.</h1>' +
-        '<p class="lead">Live sold comps come from your Card Ladder. CardHound helps you hunt faster and get a clearer call — connect Ladder, then check a card.</p>' +
-        '<p class="lead" style="margin-top:8px"><b>Hunt faster. Clearer call. Less tab-juggling.</b></p>' +
-        jobSplitHTML() +
-        '<div class="cta-stack"><button class="btn btn-gold" id="ladder-connect" type="button">' + I("plug") + 'Connect Card Ladder</button>' +
-        '<button class="btn btn-ghost" id="ladder-defer" type="button">Continue — name cards; comps wait</button></div>' +
-        '<p class="small muted" style="margin:0">Photo / lookup can still name the card. Sold comps wait until Ladder is linked. No password. No scrape. This preview does not unlock live comps.</p></section>' +
-        '<h2 class="h3 home-later">Name a card while comps wait</h2>' +
-        '<div class="home-split is-secondary">' +
-          '<section class="home-pane" aria-label="What\'s this card?">' +
-            '<h2>What\'s this card?</h2>' +
-            '<div class="scan-frame">' + frame + '</div>' +
-            '<input class="file-input" id="file" type="file" accept="image/*" capture="environment">' +
-            '<label class="btn btn-ghost" for="file">Take or upload a photo</label>' +
-            (state.photo ? '<button class="btn btn-ghost" id="go-analyze" type="button">Name this card</button>' : '') +
-            '<p class="small muted" style="margin:0">Names the card only. Comps wait until Card Ladder is linked.</p>' +
-          '</section>' +
-        '</div>';
-    } else if (!settled) {
-      var draftName = (CH_AI.byId(aiDraft) || CH_AI.providers[0]).name;
-      var ladderBan = ladderPhase === "awaiting"
-        ? '<button type="button" class="ai-banner" id="ladder-open" style="margin-bottom:12px"><span><b>Ladder hook set up · waiting for sale-by-sale rows</b><span>Still SAMPLE until real sales appear. Hunt faster. Clearer call. Less tab-juggling.</span></span>' + I("right") + '</button>'
-        : '<button type="button" class="ai-banner" id="ladder-open" style="margin-bottom:12px"><span><b>You need Card Ladder for this to work correctly</b><span>Comps wait until Ladder is linked. Hunt faster. Clearer call. Less tab-juggling.</span></span>' + I("right") + '</button>';
-      start = ladderBan +
-        '<section class="ai-start" aria-label="Connect your AI">' +
-        '<div class="eyebrow">Next</div><h1 class="h1">Connect your AI</h1>' +
-        '<p class="lead">' + esc(CH_AI.job.ai) + ' Card Ladder is sold comps only, not a buy finder.</p>' +
-        jobSplitHTML() +
-        '<div class="ai-picks" id="ai-picks" role="radiogroup" aria-label="Preferred AI">' + aiPickHTML(aiDraft) + '</div>' +
-        aiKeyField("ai-key") +
-        '<div class="cta-stack"><button class="btn btn-gold" id="ai-connect" type="button">Connect ' + esc(draftName) + '</button>' +
-        '<button class="btn btn-ghost" id="ai-skip" type="button">Skip for now</button></div>' +
-        '<p class="small muted" style="margin:0">You can change this in Settings.</p></section>';
-    } else if (live && who) {
-      var ladderBan2 = ladderPhase === "awaiting"
-        ? '<button type="button" class="ai-banner" id="ladder-open"><span><b>Ladder hook set up · waiting for sale-by-sale rows</b><span>Still SAMPLE until real sales appear.</span></span>' + I("right") + '</button>'
-        : '<button type="button" class="ai-banner" id="ladder-open"><span><b>You need Card Ladder for this to work correctly</b><span>Comps wait until Ladder is linked.</span></span>' + I("right") + '</button>';
-      start = ladderBan2 +
-        '<button type="button" class="ai-banner on" id="ai-open"><span><b>' + esc(who.name) + ' · deal call and hunts</b><span>' + (aiSecret() ? "Key on this phone · …" + esc(CH_AI.maskKey(aiSecret())) : "Add your key in Settings.") + '</span></span><span class="chip">Change</span></button>';
-    } else {
-      var ladderBan3 = ladderPhase === "awaiting"
-        ? '<button type="button" class="ai-banner" id="ladder-open"><span><b>Ladder hook set up · waiting for sale-by-sale rows</b><span>Still SAMPLE until real sales appear.</span></span>' + I("right") + '</button>'
-        : '<button type="button" class="ai-banner" id="ladder-open"><span><b>You need Card Ladder for this to work correctly</b><span>Comps wait until Ladder is linked.</span></span>' + I("right") + '</button>';
-      start = ladderBan3 +
-        '<button type="button" class="ai-banner" id="ai-open"><span><b>Connect your AI</b><span>Deal call, chart, and open-market buy hunts.</span></span>' + I("right") + '</button>';
-    }
-    var showFullHome = !needLadderGate;
-    var homeReady = showFullHome && settled && ladderLive;
-    view.innerHTML = start +
-      (showFullHome
-        ? ((settled
-            ? '<h1 class="h1">Check a card</h1><p class="lead">Photo can name the card. The hunt searches the open market. Live sold comps come from your Card Ladder when linked. Your AI calls deal, overpaying, or underpaying and charts the card.</p>'
-            : '<h2 class="h3 home-later">Or check a card — comps wait</h2>') +
-          '<div class="home-split' + (homeReady ? "" : " is-secondary") + '">' +
-            '<section class="home-pane" aria-label="What\'s this card?">' +
-              '<h2>What\'s this card?</h2>' +
-              '<div class="scan-frame">' + frame + '</div>' +
-              '<input class="file-input" id="file" type="file" accept="image/*" capture="environment">' +
-              photoBtn +
-              '<p class="small muted" style="margin:0">Names the card. Sold comps wait until Card Ladder is linked.</p>' +
-            '</section>' +
-            '<section class="home-pane" aria-label="Find buys">' +
-              '<h2>Find buys</h2>' +
-              '<textarea class="input" id="hunt-q" placeholder="Year, set, player, budget" aria-label="Describe the buy hunt"></textarea>' +
-              '<button class="btn ' + (settled ? "btn-gold" : "btn-ghost") + '" id="hunt-go" type="button">Hunt</button>' +
-              '<button class="btn btn-ghost hunt-mic" type="button" data-v="mic" data-mic-target="hunt" aria-label="Speak a hunt">' + I("mic") + ' Speak</button>' +
-              '<p class="small muted" style="margin:0">Open market: listings, deals, promos. Not Card Ladder sold comps.</p>' +
-            '</section>' +
-          '</div>' +
-          lastCheckedHTML())
-        : '') +
-      flowEnd({ leave: true, photo: true }) +
-      footer();
+    var last = state.hunt && state.hunt.query ? '<a class="tool" href="#/hunt" style="margin-top:12px"><span class="tic">' + I("search") + '</span><span class="tt"><b>Last hunt</b><span>' + esc(state.hunt.query) + ' · ' + ((state.hunt.items || []).length) + ' found</span></span>' + I("right") + '</a>' : "";
+    view.innerHTML =
+      '<section class="hunt-hero" aria-label="Hunt">' +
+        '<div class="eyebrow">' + esc(it ? it.label : "Hunt") + '</div>' +
+        '<h1 class="h1">What are you hunting?</h1>' +
+        '<p class="lead">' + esc(it ? it.lead : "Describe it. Your AI hunts it.") + ' Say it in plain words.</p>' +
+        '<textarea class="input hunt-box" id="hunt-q" rows="3" placeholder="' + esc(ex[0]) + '" aria-label="Describe what you want"></textarea>' +
+        '<button class="btn btn-gold" id="hunt-go" type="button">' + I("search") + 'Hunt</button>' +
+        '<div class="ex-row" aria-label="Examples">' + ex.map(function (e) { return '<button type="button" class="ex-chip" data-ex="' + esc(e) + '">' + esc(e) + '</button>'; }).join("") + '</div>' +
+      '</section>' +
+      aiBannerHTML() + ladderBannerHTML() + last +
+      '<details class="photo-more"><summary>' + I("camera") + ' Check a card by photo</summary>' +
+        '<section class="home-pane" aria-label="What\'s this card?">' +
+          '<div class="scan-frame">' + frame + '</div>' +
+          '<input class="file-input" id="file" type="file" accept="image/*" capture="environment">' +
+          (state.photo ? '<button class="btn btn-gold" id="go-analyze" type="button">Name this card</button><label class="btn btn-ghost" for="file">Retake</label>' : '<label class="btn btn-ghost" for="file">Take or upload a photo</label>') +
+          '<p class="small muted" style="margin:0">Names the card. Comps need your Card Ladder.</p>' +
+        '</section></details>' +
+      '<aside class="flow-end" aria-label="Notes"><p>Hunt results are real listings from your AI\'s live web search. Your words go only to the AI you picked, after you agree. Your key stays on this phone.</p><p>Sold comps, lists, and charts elsewhere in this beta are <b>SAMPLE</b> unless your Card Ladder is linked.</p><p>A photo stays on this phone until you agree to send it. Not financial advice.</p></aside>';
+    if (state.photo) view.querySelector(".photo-more").open = true;
     var f = document.getElementById("file");
     if (f) {
       f.addEventListener("change", function () {
@@ -463,60 +424,166 @@
     }
     var a = document.getElementById("go-analyze");
     if (a) a.onclick = function () { state.check = null; location.hash = "#/analyze"; };
-    var huntGo = document.getElementById("hunt-go");
-    if (huntGo) huntGo.onclick = function () { submitHunt(document.getElementById("hunt-q").value); };
-    var ladderBtn = document.getElementById("ladder-connect");
-    if (ladderBtn) ladderBtn.onclick = function () { connectSheet("cardladder"); };
-    var ladderDefer = document.getElementById("ladder-defer");
-    if (ladderDefer) ladderDefer.onclick = function () {
-      state.ladderDeferred = true;
-      LS.set("ladderDeferred", true);
-      toast("Comps wait until Card Ladder is linked. You can still name cards.");
-      scanScreen();
-    };
-    var ladderOpen = document.getElementById("ladder-open");
-    if (ladderOpen) ladderOpen.onclick = function () { connectSheet("cardladder"); };
-    if (needLadderGate) {
-      /* Ladder gate first — no AI connect yet */
-    } else if (!settled) {
-      bindAiPicks(document.getElementById("ai-picks") || view, function (id) {
-        aiDraft = id;
-        var btn = document.getElementById("ai-connect");
-        var name = CH_AI.byId(id);
-        if (btn && name) btn.textContent = "Connect " + name.name;
-      });
-      document.getElementById("ai-connect").onclick = function () {
-        var field = document.getElementById("ai-key");
-        if (!commitAi(aiDraft, field ? field.value : "", false)) return;
-        var name = CH_AI.byId(aiDraft);
-        toast((name ? name.name : "AI") + " connected on this phone.");
-        scanScreen();
-      };
-      document.getElementById("ai-skip").onclick = function () {
-        saveAi({ provider: null, skipped: true });
-        scanScreen();
-      };
-    } else {
-      var open = document.getElementById("ai-open");
-      if (open) open.onclick = aiSheet;
-    }
+    var box = document.getElementById("hunt-q");
+    document.getElementById("hunt-go").onclick = function () { submitHunt(box.value); };
+    box.addEventListener("keydown", function (e) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitHunt(box.value); } });
+    view.querySelectorAll("[data-ex]").forEach(function (b) { b.onclick = function () { box.value = b.dataset.ex; box.focus(); }; });
+    document.getElementById("ladder-open").onclick = function () { connectSheet("cardladder"); };
+    document.getElementById("ai-open").onclick = function () { aiSheet(); };
   }
 
+  /* HUNT — the user's AI searches live listings; refine with chips. */
+  function saveHunt() { LS.set("hunt", state.hunt); }
   function submitHunt(q) {
     q = String(q || "").trim();
-    if (!q) { toast("Say what to hunt."); return; }
-    var parsed = window.CH_VOICE_PARSE && CH_VOICE_PARSE.parseHunt ? CH_VOICE_PARSE.parseHunt(q) : { fields: {} };
-    var fields = parsed.fields || {};
-    var sample = (window.CARDHOUND_SAMPLE && CARDHOUND_SAMPLE.candidates) || [];
-    var hits = CH_SETGUARD.huntCandidates(q, sample, fields);
-    var catalog = CH_SETGUARD.structureAll(sample);
-    state.check = {
-      source: "hunt", query: q, fields: fields, candidates: hits.length ? hits : [],
-      catalog: catalog, read: null, prefill: fields
+    if (!q) { toast("Say what you want."); return; }
+    if (window.CH_CRISIS && CH_CRISIS.match(q)) { openGate({ title: "You are not alone", lines: [CH_CRISIS.message()], primary: "OK" }); return; }
+    state.hunt = { query: q, chips: [], items: [], log: [{ who: "you", text: q }], status: "idle", at: Date.now() };
+    saveHunt();
+    state.huntQueued = true;
+    if (parseHash().route === "hunt") huntScreen(); else location.hash = "#/hunt";
+  }
+  function runHunt() {
+    var h = state.hunt; if (!h) return;
+    if (!canLive()) {
+      h.status = "needai"; saveHunt(); paintHunt();
+      aiSheet({ then: function () { runHunt(); }, title: "Connect your AI to hunt" });
+      return;
+    }
+    leaveGate(function () {
+      var provider = CH_AI.normalize(state.ai).provider;
+      h.status = "pending"; h.provider = provider; saveHunt(); paintHunt();
+      var seq = (runHunt.seq = (runHunt.seq || 0) + 1);
+      CH_HUNT.run({ provider: provider, key: aiSecret(), query: h.query, chips: h.chips, intent: state.intent, sites: state.huntSites, campid: CFG.epnCampaignId }).then(function (r) {
+        if (seq !== runHunt.seq || state.hunt !== h) return;
+        if (r.ok) {
+          h.items = r.items; h.verified = r.verified; h.dropped = r.dropped; h.status = "done"; h.at = Date.now();
+          var shown = CH_HUNT.applyChips(r.items, h.chips).length;
+          h.log.push({ who: "ai", text: (r.reply || (shown ? "Here's what I found." : "Nothing real matched yet.")) + (r.dropped && (r.dropped.noUrl + r.dropped.unseen) ? " (" + (r.dropped.noUrl + r.dropped.unseen) + " dropped: no real listing link.)" : "") });
+        } else {
+          h.status = "error"; h.error = CH_HUNT.failLine(r);
+          h.log.push({ who: "ai", text: h.error, bad: true });
+        }
+        saveHunt(); paintHunt();
+      });
+    }, function () { h.status = "held"; saveHunt(); paintHunt(); });
+  }
+  function huntResultHTML(it, i) {
+    var ship = it.shipping == null ? "+ ship ?" : (it.shipping === 0 ? "Free ship" : "+ " + money(it.shipping, true) + " ship");
+    var g = it.grade ? '<span class="chip">' + esc(it.grade) + '</span>' : "";
+    return '<article class="hr-card">' +
+      '<button type="button" class="hr-main" data-pick="' + i + '" aria-label="Confirm this exact card">' +
+        (it.image ? '<img class="hr-img" src="' + esc(it.image) + '" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.replaceWith(Object.assign(document.createElement(\'div\'),{className:\'hr-img none\'}))">' : '<div class="hr-img none" aria-hidden="true">' + I("gem") + '</div>') +
+        '<span class="hr-body"><b class="hr-title">' + esc(it.title) + '</b>' +
+          '<span class="hr-price"><em class="num">' + money(it.price, true) + '</em> <span class="small muted">' + ship + '</span></span>' +
+          '<span class="hr-meta"><span class="chip gold">' + esc(it.source) + '</span>' + g + '</span>' +
+          (it.why ? '<span class="hr-why">' + esc(it.why) + '</span>' : "") +
+        '</span></button>' +
+      '<div class="hr-actions"><a class="btn btn-ghost btn-sm" href="' + esc(it.link || it.url) + '" target="_blank" rel="noopener noreferrer sponsored">Open listing ' + I("right") + '</a><button type="button" class="btn btn-gold btn-sm" data-pick="' + i + '">Confirm card</button></div>' +
+    '</article>';
+  }
+  function paintHunt() {
+    if (parseHash().route !== "hunt") return;
+    var slot = document.getElementById("hunt-body"); if (!slot) { huntScreen(); return; }
+    var h = state.hunt;
+    var items = CH_HUNT.applyChips(h.items || [], h.chips);
+    var chips = (h.chips || []).map(function (c, i) { return '<button type="button" class="rchip" data-unchip="' + i + '" aria-label="Remove ' + esc(c.text) + '">' + esc(c.text) + ' <span aria-hidden="true">×</span></button>'; }).join("");
+    document.getElementById("hunt-chips").innerHTML = chips;
+    document.getElementById("hunt-log").innerHTML = (h.log || []).slice(-2).map(function (m) { return '<p class="msg ' + (m.who === "you" ? "me" : "ai") + (m.bad ? " bad" : "") + '">' + esc(m.text) + '</p>'; }).join("");
+    var body = "";
+    if (h.status === "pending") body = '<div class="hunt-wait"><span class="spin" aria-hidden="true"></span><b>Your AI is searching live listings…</b><span class="small muted">Keep this screen open.</span></div>';
+    else if (h.status === "needai") body = '<div class="card"><b>Connect your AI to hunt.</b><p class="small muted" style="margin:6px 0 10px">One step. Your key stays on this phone.</p><button class="btn btn-gold" id="hunt-ai" type="button">Connect AI</button></div>';
+    else if (h.status === "held") body = '<div class="card"><b>Kept on this phone.</b><p class="small muted" style="margin:6px 0 10px">Nothing was sent.</p><button class="btn btn-gold" id="hunt-retry" type="button">Hunt</button></div>';
+    else if (h.status === "error") body = '<div class="card bad-card"><b>' + esc(h.error || "Hunt failed.") + '</b><button class="btn btn-ghost" id="hunt-retry" type="button" style="margin-top:10px">Try again</button></div>';
+    else if (!items.length && h.status === "done") body = '<div class="empty">No real listings match' + ((h.items || []).length ? " these chips. Remove one or hunt again." : ". Try a looser ask.") + '</div>';
+    else body = items.map(huntResultHTML).join("");
+    if (h.status === "done" && (h.items || []).length) body = '<p class="small muted hunt-count">' + items.length + ' real listing' + (items.length === 1 ? "" : "s") + (h.verified ? " · links seen in your AI's search" : "") + ' · tap one to confirm the exact card</p>' + body;
+    if (h.chipsDirty && h.status === "done") body = '<button class="btn btn-ghost" id="hunt-again" type="button" style="margin-bottom:12px">Hunt again with these chips</button>' + body;
+    slot.innerHTML = body;
+    var sites = CH_HUNT.sitesFor(state.huntSites);
+    document.getElementById("hunt-open").innerHTML = '<h2 class="h3">Search your sites yourself</h2><div class="site-links">' + sites.map(function (s) { return '<a class="chip" href="' + esc(s.search(h.query + " " + (h.chips || []).map(function (c) { return c.filter.exclude ? "" : c.text; }).join(" "))) + '" target="_blank" rel="noopener noreferrer">' + esc(s.name) + '</a>'; }).join("") + '</div>';
+    view.querySelectorAll("[data-unchip]").forEach(function (b) { b.onclick = function () { h.chips.splice(+b.dataset.unchip, 1); h.chipsDirty = true; saveHunt(); paintHunt(); }; });
+    view.querySelectorAll("[data-pick]").forEach(function (b) { b.onclick = function () { pickListing(items[+b.dataset.pick]); }; });
+    var r1 = document.getElementById("hunt-retry"); if (r1) r1.onclick = runHunt;
+    var r2 = document.getElementById("hunt-again"); if (r2) r2.onclick = function () { h.chipsDirty = false; runHunt(); };
+    var r3 = document.getElementById("hunt-ai"); if (r3) r3.onclick = function () { aiSheet({ then: runHunt, title: "Connect your AI to hunt" }); };
+  }
+  function huntScreen() {
+    var h = state.hunt;
+    if (!h || !h.query) { location.hash = "#/scan"; return; }
+    view.innerHTML = '<a class="link-btn" href="#/scan">' + I("left") + 'New hunt</a>' +
+      '<h1 class="h2 hunt-q">' + esc(h.query) + '</h1>' +
+      '<div class="rchips" id="hunt-chips"></div>' +
+      '<div class="hunt-log" id="hunt-log" aria-live="polite"></div>' +
+      '<form class="refine" id="refine"><input class="input" id="refine-q" placeholder="Refine: only PSA 9+, under $200, no Moss" autocomplete="off" aria-label="Refine the hunt"><button class="btn btn-gold btn-sm" type="submit">Refine</button></form>' +
+      '<div id="hunt-body" aria-live="polite"></div>' +
+      '<div id="hunt-open" class="hunt-open"></div>' +
+      '<aside class="flow-end"><p>Listings come from your AI\'s live web search of public pages. Price and availability can change. Check the listing before you buy. CardHound never buys or bids for you.</p><p>Not financial advice.</p>' + (/^\d{10}$/.test(String(CFG.epnCampaignId || "")) ? '<p>eBay links may earn CardHound a commission. Your price stays the same.</p>' : "") + '</aside>';
+    document.getElementById("refine").onsubmit = function (e) {
+      e.preventDefault();
+      var inp = document.getElementById("refine-q"), t = inp.value.trim(); if (!t) return;
+      if (window.CH_CRISIS && CH_CRISIS.match(t)) { openGate({ title: "You are not alone", lines: [CH_CRISIS.message()], primary: "OK" }); return; }
+      var c = CH_HUNT.parseRefine(t);
+      h.chips.push(c); h.log.push({ who: "you", text: t }); h.chipsDirty = false; inp.value = "";
+      saveHunt(); paintHunt(); runHunt();
     };
-    state.pickedCandidate = 0;
-    state.fromFlow = true;
-    startLive(q, state.photo).then(function () { location.hash = "#/match"; });
+    paintHunt();
+    if (state.huntQueued) { state.huntQueued = false; runHunt(); }
+  }
+  function pickListing(it) {
+    if (!it) return;
+    var cand = { year: it.year, set: it.set, number: it.number, player: it.player, variant: it.variant || (/(psa|bgs|sgc|cgc)/i.test(it.grade) ? "" : ""), name: it.title, id: it.id, score: it.fit, priceable: false, rawVariant: it.variant };
+    var full = !!(cand.set && cand.number && cand.variant);
+    state.liveHunt = null;
+    state.check = { source: "listing", listing: it, image: it.image, query: it.title, candidates: full ? [cand] : [], catalog: sampleCatalog(),
+      read: (cand.year && cand.set) ? cand : null, prefill: { year: it.year, set: it.set, card_number: it.number, player: it.player, variant: it.variant } };
+    state.pickedCandidate = 0; state.fromFlow = true;
+    location.hash = "#/match";
+  }
+
+  /* ONBOARDING — intention, then where you hunt. Editable under More. */
+  function onboardScreen(p, mode) {
+    var step = mode || (p && p.sub) || "intent";
+    var editing = !!mode;
+    if (step === "intent") {
+      view.innerHTML = (editing ? '<a class="link-btn" href="#/more">' + I("left") + 'More</a>' : '<div class="eyebrow">Welcome to CardHound</div>') +
+        '<h1 class="h1">What\'s your intention?</h1><p class="lead">We aim every hunt at it. Change it anytime under More.</p>' +
+        '<div class="intent-list" role="radiogroup" aria-label="Your intention">' + CH_HUNT.INTENTS.map(function (x) {
+          var on = state.intent === x.id;
+          return '<button type="button" class="intent' + (on ? " on" : "") + '" role="radio" aria-checked="' + on + '" data-intent="' + x.id + '"><b>' + esc(x.label) + '</b><span>' + esc(x.sub) + '</span></button>';
+        }).join("") + '</div>';
+      view.querySelectorAll("[data-intent]").forEach(function (b) {
+        b.onclick = function () {
+          var x = CH_HUNT.intentById(b.dataset.intent);
+          state.intent = x.id; LS.set("intent", x.id);
+          if (!LS.get("alertsTouched", false)) { state.alerts = { threshold: x.alertPct, on: true }; LS.set("alerts", state.alerts); }
+          if (editing) { toast("Saved: " + x.label); location.hash = "#/more"; } else location.hash = "#/start/sites";
+        };
+      });
+      return;
+    }
+    var picked = (state.huntSites && state.huntSites.length ? state.huntSites : CH_HUNT.DEFAULT_SITES).slice();
+    view.innerHTML = (editing ? '<a class="link-btn" href="#/more">' + I("left") + 'More</a>' : '<a class="link-btn" href="#/start/intent">' + I("left") + 'Back</a>') +
+      '<h1 class="h1">Where do you hunt cards?</h1><p class="lead">If you look for cards on these sites, link them here so your AI hunt searches where you shop.</p>' +
+      '<div class="site-list">' + CH_HUNT.SITES.map(function (s) {
+        var on = picked.indexOf(s.id) > -1;
+        return '<button type="button" class="site' + (on ? " on" : "") + '" aria-pressed="' + on + '" data-site="' + s.id + '"><span class="srcmono">' + esc(s.mono) + '</span><span class="tt"><b>' + esc(s.name) + '</b><span>' + esc(s.line) + '</span></span><span class="tick" aria-hidden="true">' + I("check") + '</span></button>';
+      }).join("") + '</div>' +
+      '<p class="small muted">Public pages only. No passwords. Nothing behind a login is searched.</p>' +
+      '<div class="cta-stack"><button class="btn btn-gold" id="sites-go" type="button">' + (editing ? "Save" : "Done") + '</button>' + (editing ? "" : '<button class="btn btn-ghost" id="sites-skip" type="button">Skip</button>') + '</div>';
+    view.querySelectorAll("[data-site]").forEach(function (b) {
+      b.onclick = function () {
+        var id = b.dataset.site, k = picked.indexOf(id);
+        if (k > -1) picked.splice(k, 1); else picked.push(id);
+        b.classList.toggle("on", k < 0); b.setAttribute("aria-pressed", k < 0);
+      };
+    });
+    document.getElementById("sites-go").onclick = function () {
+      state.huntSites = picked; LS.set("huntSites", picked); LS.set("onboarded", true);
+      if (editing) { toast("Saved."); location.hash = "#/more"; } else location.hash = "#/scan";
+    };
+    var sk = document.getElementById("sites-skip");
+    if (sk) sk.onclick = function () { LS.set("onboarded", true); location.hash = "#/scan"; };
   }
 
   /* ANALYZE */
@@ -713,16 +780,16 @@
     var c = pack.candidates || [];
     if (state.pickedCandidate >= c.length) state.pickedCandidate = 0;
     var pre = pack.prefill || {};
-    var thumb = state.photo ? '<img src="' + state.photo + '" alt="" style="width:60px;height:60px;object-fit:cover;border-radius:14px;border:1px solid var(--line)">' : '<div style="width:46px;flex:none">' + cardArt() + '</div>';
+    var isListing = pack.source === "listing";
+    var thumb = isListing && pack.image ? '<img src="' + esc(pack.image) + '" alt="" referrerpolicy="no-referrer" style="width:60px;height:60px;object-fit:cover;border-radius:14px;border:1px solid var(--line)">' : state.photo ? '<img src="' + state.photo + '" alt="" style="width:60px;height:60px;object-fit:cover;border-radius:14px;border:1px solid var(--line)">' : '<div style="width:46px;flex:none">' + cardArt() + '</div>';
     var rows = c.map(function (x, i) {
       return '<button type="button" class="cand' + (i === state.pickedCandidate ? " on" : "") + '" data-i="' + i + '"><span class="rad"></span><span class="ct"><b>' + esc(x.player || x.name) + '</b>' +
         '<span class="setrow"><span class="setchip">' + esc(setLabel(x.year, x.set)) + '</span><span class="setchip">#' + esc(x.number) + '</span><span class="setchip">' + esc(x.variant || "Variant") + '</span></span></span></button>';
     }).join("");
-    view.innerHTML = '<a class="link-btn" href="#/scan">' + I("left") + 'Back</a>' +
+    view.innerHTML = '<a class="link-btn" href="' + (isListing ? "#/hunt" : "#/scan") + '">' + I("left") + 'Back</a>' +
       '<div class="row" style="gap:14px;margin-top:12px">' + thumb + '<div><h1 class="h2">Is this the exact card?</h1></div></div>' +
       '<p class="lead">Set must match the cardboard. Topps ≠ Topps Chrome ≠ Update. Base ≠ Refractor / parallel.</p>' +
-      '<div id="live-slot">' + liveHuntBody() + '</div>' +
-      '<span class="chip">SAMPLE</span>' +
+      (isListing ? '<p class="small muted" style="margin:0 0 8px">Listing: ' + esc(pack.listing.title) + '</p><span class="chip gold">From the listing title · check it</span>' : '<div id="live-slot">' + liveHuntBody() + '</div><span class="chip">SAMPLE</span>') +
       (rows || '<div class="card" style="margin-top:12px"><b>No single match yet.</b><p class="small muted" style="margin:6px 0 0">Type the year, set, number, and variant.</p></div>') +
       '<div class="card" style="margin-top:14px"><button class="row between" id="ovr" type="button" style="width:100%;min-height:48px"><span class="row" style="gap:10px"><b style="font-size:15px">Type the set myself</b></span><span class="dim">' + I("down") + '</span></button>' +
       '<div id="ovr-form" ' + (c.length ? "hidden" : "") + '><div class="grid2"><div class="field"><label for="o-year">Year</label><input class="input" id="o-year" placeholder="2001" inputmode="numeric" value="' + esc(pre.year || "") + '"></div><div class="field"><label for="o-num">Card #</label><input class="input" id="o-num" placeholder="T247" value="' + esc(pre.card_number || pre.number || "") + '"></div></div>' +
@@ -772,6 +839,18 @@
     }
     var card = (decision && decision.picked) ? decision.picked : picked;
     var pending = hookPendingRows();
+    /* Real listing: never show SAMPLE comps. Mismatch → UNPRICED; no Ladder rows → comps wait. */
+    if (pack.source === "listing") {
+      if (!decision.priced && decision.code !== "no_exact_comp") { state.liveSales = null; state.unpriced = decision; location.hash = "#/unpriced"; return; }
+      if (!pending.length) {
+        state.liveSales = null;
+        state.unpriced = { priced: false, showPrices: false, code: "ladder_needed", title: "Comps wait", ladder: true,
+          headline: "Exact card confirmed. Live comps need your Card Ladder.",
+          detail: "Link Card Ladder (paste your sold history) to see sale-by-sale comps for this exact set, parallel, and year. We never show sample prices for a real listing.",
+          pickedLine: CH_SETGUARD.lineOf(card), readLine: "", picked: card };
+        location.hash = "#/unpriced"; return;
+      }
+    }
     /* When the user has pasted sold rows, comps come only from exact setguard matches — never SAMPLE inventions. */
     if (pending.length) {
       if (!decision.priced && decision.code !== "no_exact_comp") {
@@ -805,7 +884,7 @@
     location.hash = "#/report";
   }
   function matchScreen() {
-    if (state.check && state.check.source === "hunt") { renderConfirm(state.check); return; }
+    if (state.check && (state.check.source === "hunt" || state.check.source === "listing")) { renderConfirm(state.check); return; }
     D.identifyCard(state.photo).then(function (res) {
       var candidates = CH_SETGUARD.structureAll(res.candidates);
       renderConfirm({ source: "photo", candidates: candidates, catalog: sampleCatalog(), read: CH_SETGUARD.photoRead(candidates), prefill: {} });
@@ -818,9 +897,11 @@
       '<p class="lead" style="font-size:18px;color:var(--text)">' + esc(d.headline || "We won't guess the set.") + '</p>' +
       (d.pickedLine ? '<div class="card"><b>You picked</b><p style="margin:6px 0 0">' + esc(d.pickedLine) + '</p>' +
         (d.readLine ? '<b style="display:block;margin-top:12px">That doesn\'t match</b><p style="margin:6px 0 0">' + esc(d.readLine) + '</p>' : "") + '</div>' : "") +
-      '<p style="font-size:16px;font-weight:700">Wrong set → wrong price.</p>' +
+      (d.ladder ? "" : '<p style="font-size:16px;font-weight:700">Wrong set → wrong price.</p>') +
       '<p class="muted">' + esc(d.detail || "") + '</p>' +
-      '<div class="cta-stack"><a class="btn btn-gold" href="#/match">Pick the exact set</a><a class="btn btn-ghost" href="#/scan">Start over</a></div></section>' + footer();
+      (d.ladder
+        ? '<div class="cta-stack"><button class="btn btn-gold" type="button" data-connect="cardladder">Connect Card Ladder</button><a class="btn btn-ghost" href="#/hunt">Back to hunt</a></div></section>'
+        : '<div class="cta-stack"><a class="btn btn-gold" href="#/match">Pick the exact set</a><a class="btn btn-ghost" href="' + (state.check && state.check.source === "listing" ? "#/hunt" : "#/scan") + '">' + (state.check && state.check.source === "listing" ? "Back to hunt" : "Start over") + '</a></div></section>') + footer();
   }
 
   /* REPORT */
@@ -1306,7 +1387,7 @@
         var th = document.getElementById("th"), v = document.getElementById("thv");
         th.oninput = function () { v.textContent = th.value + "% under"; };
         var nl = document.getElementById("nhlink"); if (nl && BOOM) nl.onclick = function () { BOOM.settingsSheet(); };
-        document.getElementById("asave").onclick = function () { state.alerts = { threshold: +th.value, on: document.getElementById("aon").checked }; LS.set("alerts", state.alerts); closeSheet(); toast("Saved on this device (demo)."); go(); };
+        document.getElementById("asave").onclick = function () { state.alerts = { threshold: +th.value, on: document.getElementById("aon").checked }; LS.set("alerts", state.alerts); LS.set("alertsTouched", true); closeSheet(); toast("Saved on this device (demo)."); go(); };
       });
   }
 
@@ -1629,7 +1710,8 @@
     return '<div class="row" style="gap:18px;justify-content:center;margin-top:18px"><a class="link-btn" href="../legal/PRIVACY_POLICY.md">Privacy</a><a class="link-btn" href="../legal/TERMS_OF_SERVICE.md">Terms</a></div>';
   }
   function moreScreen() {
-    var yours = [["#/daily", "report", "Daily report", "Movers and gems, tailored by you"], ["#/ask", "mic", "Ask", "Hunts and questions. Not on Home."], ["#/ledger", "wallet", "Portfolio", "Buys, cost, and value on this phone"], ["#/deals/watch", "eye", "Watchlist", "Cards and listings you are watching"], ["#/deals/snipes", "target", "Auction Watch", "Reminders. You set the max."], ["#/deals", "deals", "For sale", "Asking prices versus sample comps"], ["#/lists/gems", "gem", "Gem Hunt", "Hard-to-find and mislabeled listings"]];
+    var itn = intentNow();
+    var yours = [["#/intent", "target", "Your intention", itn ? itn.label + " · change" : "Flip, hold, grade, or other"], ["#/sites", "search", "Where you hunt", "eBay, Facebook, Whatnot, and more"], ["#/daily", "report", "Daily report", "Movers and gems, tailored by you"], ["#/ask", "mic", "Ask", "Hunts and questions. Not on Home."], ["#/ledger", "wallet", "Portfolio", "Buys, cost, and value on this phone"], ["#/deals/watch", "eye", "Watchlist", "Cards and listings you are watching"], ["#/deals/snipes", "target", "Auction Watch", "Reminders. You set the max."], ["#/deals", "deals", "For sale", "Asking prices versus sample comps"], ["#/lists/gems", "gem", "Gem Hunt", "Hard-to-find and mislabeled listings"]];
     var tools = [["#/lists/movers", "markets", "Lists", "Movers, highs, picks, searched, gems"], ["#/tool/alerts", "bell", "Alerts", "Under-comp and new-high alerts"], ["#/settings", "sliders", "Settings", "Card Ladder, AI, import, eBay, PSA"], ["#/tool/fees", "calc", "Fee and net", "What you keep after eBay fees"], ["#/tool/roi", "layers", "Grading ROI", "Raw versus graded after fees"], ["#/tool/variant", "list", "Exact variant check", "Parallel, refractor, reprint, slab"], ["#/tool/offer", "handshake", "Best Offer helper", "Suggested offer and walk-away"]];
     if (window.CH_APP && window.CH_APP.moreItemsTop && window.CH_APP.moreItemsTop.length) {
       yours = window.CH_APP.moreItemsTop.map(function (t) { return ["#/" + t[0], t[1], t[2], t[3]]; }).concat(yours);
@@ -1774,7 +1856,7 @@
   }
 
   var BOOM = null, VOICE = null;
-  var ROUTES = { scan: scanScreen, analyze: analyzeScreen, match: matchScreen, report: reportScreen, unpriced: unpricedScreen, markets: marketsScreen, lists: marketsScreen, deals: dealsScreen, more: moreScreen, connections: connectionsScreen, settings: connectionsScreen, tool: toolScreen, daily: dailyScreen };
+  var ROUTES = { start: onboardScreen, intent: function (p) { onboardScreen(p, "intent"); }, sites: function (p) { onboardScreen(p, "sites"); }, hunt: huntScreen, scan: scanScreen, analyze: analyzeScreen, match: matchScreen, report: reportScreen, unpriced: unpricedScreen, markets: marketsScreen, lists: marketsScreen, deals: dealsScreen, more: moreScreen, connections: connectionsScreen, settings: connectionsScreen, tool: toolScreen, daily: dailyScreen };
   BOOM = window.CH_BOOM ? window.CH_BOOM({ D: D, I: I, esc: esc, money: money, toast: toast, openSheet: openSheet, closeSheet: closeSheet, parseHash: parseHash }) : null;
   window.CH_BOOM_UI = BOOM;
   if (window.CH_LEDGER) ROUTES.ledger = window.CH_LEDGER({ view: view, D: D, I: I, esc: esc, money: money, pct: pct, toast: toast, footer: footer, openSheet: openSheet, closeSheet: closeSheet, isConnected: isConnected, gate: gate, parseHash: parseHash, go: go });
