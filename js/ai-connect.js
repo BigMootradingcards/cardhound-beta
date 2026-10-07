@@ -6,10 +6,8 @@
    Step 2: the user pastes their own key. It stays on this phone until a hunt
    is sent. OAuth is not wired.
    Step 3: one hunt call to the provider with that key. A reply is live only
-   when the provider returns text. From this static preview, Claude and Gemini
-   accept a browser call (a bad key comes back as an HTTP error and stays
-   SAMPLE). A ChatGPT key is blocked by the browser on this page, so that
-   hunt stays SAMPLE and the line says so. Later: a scheduled hunt and a live
+   when the provider returns text. All supported providers accept a browser call from github.io
+   (CORS verified Oct 7); a bad key comes back as an HTTP error. Later: a scheduled hunt and a live
    deal call on comps. */
 (function (root) {
   "use strict";
@@ -19,11 +17,42 @@
     ladder: "Sold comps only. Not for finding cards to buy.",
     ladderShort: "Sold comps only. Not a buy finder."
   };
+  /* Provider names are NEVER shown to users (Maurice, Oct 7): every display name is "Your AI".
+     The provider is detected from the key format or the optional endpoint. Ids are internal routing only.
+     (Sponsored-slot placeholder: a future sponsored AI could be listed here — code comment only, no UI.) */
   var PROVIDERS = [
-    { id: "chatgpt", name: "ChatGPT", mono: "CG", blurb: "Deal call, chart, and open-market hunts." },
-    { id: "claude", name: "Claude", mono: "CL", blurb: "Deal call, chart, and open-market hunts." },
-    { id: "gemini", name: "Gemini", mono: "GE", blurb: "Deal call, chart, and open-market hunts." }
+    { id: "chatgpt", name: "Your AI", mono: "AI", blurb: "" },
+    { id: "claude", name: "Your AI", mono: "AI", blurb: "" },
+    { id: "gemini", name: "Your AI", mono: "AI", blurb: "" },
+    { id: "custom", name: "Your AI", mono: "AI", blurb: "" }
   ];
+  /* Key / endpoint -> internal provider id. null = can't tell (ask for the endpoint). */
+  function detect(key, endpoint) {
+    var e = String(endpoint || "").trim().toLowerCase();
+    if (e) {
+      if (/(^|\.)openai\.com/.test(hostOf(e))) return "chatgpt";
+      if (/(^|\.)anthropic\.com/.test(hostOf(e))) return "claude";
+      if (/generativelanguage\.googleapis\.com/.test(hostOf(e))) return "gemini";
+      if (/^https:\/\//.test(e)) return "custom";
+      return null;
+    }
+    var k = String(key || "").trim();
+    if (/^sk-ant-/.test(k)) return "claude";
+    if (/^AIza[0-9A-Za-z_\-]{20,}$/.test(k)) return "gemini";
+    if (/^sk-/.test(k)) return "chatgpt";
+    return null;
+  }
+  function hostOf(u) { try { return new URL(u).hostname; } catch (x) { return ""; } }
+  /* Custom endpoint (OpenAI-compatible chat completions). Model from ?model= on the endpoint, else a sensible default. */
+  function customTarget(endpoint) {
+    var u; try { u = new URL(String(endpoint || "").trim()); } catch (x) { return null; }
+    if (u.protocol !== "https:") return null;
+    var model = u.searchParams.get("model") || (/perplexity/.test(u.hostname) ? "sonar" : "default");
+    u.searchParams.delete("model");
+    var path = u.pathname.replace(/\/+$/, "");
+    if (!/\/chat\/completions$/.test(path)) path += "/chat/completions";
+    return { url: u.origin + path + (u.search || ""), model: model };
+  }
   function byId(id) {
     for (var i = 0; i < PROVIDERS.length; i++) if (PROVIDERS[i].id === id) return PROVIDERS[i];
     return null;
@@ -52,7 +81,7 @@
   }
   function readText(provider, json) {
     json = json || {};
-    if (provider === "chatgpt") {
+    if (provider === "chatgpt" || provider === "custom") {
       var msg = json.choices && json.choices[0] && json.choices[0].message;
       return msg && msg.content ? String(msg.content) : "";
     }
@@ -66,8 +95,15 @@
     }
     return "";
   }
-  function buildRequest(provider, key, text, image) {
-    var prompt = huntPrompt(text);
+  function buildRequest(provider, key, text, image, opts) {
+    opts = opts || {};
+    var prompt = opts.raw ? String(text || "") : huntPrompt(text);
+    if (provider === "custom") {
+      var tg = customTarget(opts.endpoint);
+      if (!tg) return null;
+      return { url: tg.url, init: { method: "POST", headers: { "Authorization": "Bearer " + key, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: tg.model, messages: [{ role: "user", content: prompt }] }) } };
+    }
     if (provider === "chatgpt") {
       var content = [{ type: "text", text: prompt }];
       if (image && image.data) content.push({ type: "image_url", image_url: { url: "data:" + (image.mime || "image/jpeg") + ";base64," + image.data } });
@@ -76,7 +112,7 @@
         init: {
           method: "POST",
           headers: { "Authorization": "Bearer " + key, "Content-Type": "application/json" },
-          body: JSON.stringify({ model: "gpt-4o-mini", messages: [{ role: "user", content: content }] })
+          body: JSON.stringify({ model: "gpt-5-mini", messages: [{ role: "user", content: content }] })
         }
       };
     }
@@ -127,6 +163,8 @@
     var known = byId(result.provider);
     var name = known ? known.name : "";
     if (result.status === "live") return "A reply came back from your AI. Sold prices on this page stay SAMPLE.";
+    if (result.reason === "http") return "Your AI key didn't work. Still SAMPLE.";
+    if (result.reason === "blocked") return "Couldn't reach your AI. Still SAMPLE.";
     if (result.status === "pending") return "Asking your AI. Still SAMPLE until a reply returns.";
     if (result.reason === "skipped") return "AI is skipped. Still SAMPLE.";
     if (result.reason === "no-key") return "No key on this phone. Still SAMPLE.";
@@ -149,7 +187,7 @@
     if (image && String(image.data).length > 1800000) image = null;
     if (!text && !image) return Promise.resolve({ live: false, reason: "photo", provider: provider.id });
     if (!text) text = "Name this card from the photo.";
-    var req = buildRequest(provider.id, key, text, image);
+    var req = buildRequest(provider.id, key, text, image, { raw: !!opts.raw, endpoint: opts.endpoint });
     var fetchFn = opts.fetch || (typeof fetch === "function" ? fetch : null);
     if (!req || !fetchFn) return Promise.resolve({ live: false, reason: "network", provider: provider.id });
     var ctrl = typeof AbortController === "function" ? new AbortController() : null;
@@ -172,7 +210,7 @@
   }
   var api = {
     job: JOB, providers: PROVIDERS, byId: byId, normalize: normalize, connected: connected, settled: settled,
-    acceptKey: acceptKey, maskKey: maskKey, readText: readText, interpret: interpret, sampleLine: sampleLine,
+    detect: detect, customTarget: customTarget, acceptKey: acceptKey, maskKey: maskKey, readText: readText, interpret: interpret, sampleLine: sampleLine,
     huntLine: huntLine, buildRequest: buildRequest, ask: ask
   };
   root.CH_AI = api;

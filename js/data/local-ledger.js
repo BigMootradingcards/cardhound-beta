@@ -13,10 +13,26 @@
   var S = function () { return window.CARDHOUND_SAMPLE || {}; };
   var clone = function (v) { return JSON.parse(JSON.stringify(v)); };
   var r2 = function (n) { return Math.round((+n || 0) * 100) / 100; };
-  function seed() { return (S().ledger || []).map(function (r) { var x = clone(r); x.sample = true; return x; }); }
+  /* Oct 7 beta: no sample rows. Portfolio = the user's own cards and real costs only. Old sample seeds are purged once. */
+  function seed() { return []; }
   function load() {
-    try { var v = localStorage.getItem(KEY); if (v) return JSON.parse(v); } catch (e) {}
-    var s = seed(); save(s); return s;
+    try {
+      var v = localStorage.getItem(KEY);
+      if (v) { var rows = JSON.parse(v), real = rows.filter(function (r) { return !r.sample; }); if (real.length !== rows.length) save(real); return real; }
+    } catch (e) {}
+    return [];
+  }
+  /* Value = most recent setguard-matched sale from the user's own pasted Card Ladder history, same grade. Else null ("needs comps"). */
+  function gradeKey(g) { var m = String(g || "").match(/\b(PSA|BGS|SGC|CGC|TAG)\s*(\d+(?:\.5)?)/i); return m ? m[1].toUpperCase() + " " + m[2] : "RAW"; }
+  function ladderValue(row) {
+    var LH = window.CH_LADDER_HOOK; if (!LH || !LH.matchLiveSales || !LH.structureIdentity) return null;
+    var hook = {}; try { hook = JSON.parse(localStorage.getItem("ch_ladderHook") || "{}") || {}; } catch (e) {}
+    var pending = Array.isArray(hook.pendingRows) ? hook.pendingRows : [];
+    if (!pending.length) return null;
+    var id = LH.structureIdentity(row.card, {});
+    if (!id.set || !id.number) return null;
+    var want = gradeKey(row.grade), sales = LH.matchLiveSales(pending, id).filter(function (x) { return gradeKey(x.grade) === want; });
+    return sales.length ? { price: r2(sales[0].price), date: sales[0].date || "", n: sales.length } : null;
   }
   function save(rows) { try { localStorage.setItem(KEY, JSON.stringify(rows)); } catch (e) {} }
   function norm(r) {
@@ -50,23 +66,22 @@
     resetLedger: function () { var s = seed(); save(s); return Promise.resolve(withCost(s)); },
     getPortfolio: function () {
       var F = S().portfolioFees || { ebayPct: 0.1325, ebayFixed: 0.4, shipToBuyer: 5, label: "" };
+      if (!F.label) F.label = "13.25% eBay fee + $0.40 + $5 shipping";
       var rows = withCost(load()), held = rows.filter(function (r) { return r.status !== "sold"; }), sold = rows.filter(function (r) { return r.status === "sold"; });
       var holdings = held.map(function (r) {
-        var hasVal = r.value != null && r.value > 0, v = hasVal ? r.value : r.cost, net = netAfterFees(v, "eBay", F);
-        return { id: r.id, card: r.card, grade: r.grade, status: r.status, cost: r.cost, value: r2(v), valued: hasVal, net: r2(net), gain: r2(net - r.cost), sample: r.sample };
+        var lv = ladderValue(r), net = lv ? netAfterFees(lv.price, "eBay", F) : null;
+        return { id: r.id, card: r.card, grade: r.grade, status: r.status, cost: r.cost, value: lv ? lv.price : null, valued: !!lv, lastSale: lv, net: net == null ? null : r2(net), gain: net == null ? null : r2(net - r.cost) };
       });
+      var valued = holdings.filter(function (h) { return h.valued; });
       var costBasis = r2(holdings.reduce(function (s, h) { return s + h.cost; }, 0));
-      var value = r2(holdings.reduce(function (s, h) { return s + h.value; }, 0));
-      var netValue = holdings.reduce(function (s, h) { return s + h.net; }, 0);
+      var valuedCost = r2(valued.reduce(function (s, h) { return s + h.cost; }, 0));
+      var value = r2(valued.reduce(function (s, h) { return s + h.value; }, 0));
+      var netValue = valued.reduce(function (s, h) { return s + h.net; }, 0);
       var realized = r2(sold.reduce(function (s, r) { return s + netAfterFees(+r.soldFor || 0, r.soldVia || "eBay", F) - r.cost; }, 0));
-      var shape = S().portfolioShape || [1], last = shape[shape.length - 1] || 1;
-      var series = shape.map(function (k) { return r2(value * k / last); });
-      var costSeries = shape.map(function () { return costBasis; });
       return Promise.resolve({
-        sample: true, count: holdings.length, soldCount: sold.length, costBasis: costBasis, value: value,
-        unrealized: r2(netValue - costBasis), unrealizedPct: costBasis ? (netValue - costBasis) / costBasis * 100 : 0,
-        realized: realized, total: r2(netValue - costBasis + realized), series: series, costSeries: costSeries,
-        holdings: holdings.sort(function (a, b) { return b.value - a.value; }), unvalued: holdings.filter(function (h) { return !h.valued; }).length, fees: F
+        sample: false, count: holdings.length, soldCount: sold.length, costBasis: costBasis, valuedCost: valuedCost, value: value, valuedCount: valued.length,
+        unrealized: r2(netValue - valuedCost), unrealizedPct: valuedCost ? (netValue - valuedCost) / valuedCost * 100 : 0,
+        realized: realized, holdings: holdings.sort(function (a, b) { return (b.value || 0) - (a.value || 0); }), unvalued: holdings.length - valued.length, fees: F
       });
     }
   };

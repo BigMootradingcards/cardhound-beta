@@ -46,11 +46,11 @@ window.CH_LEDGER = function (U) {
       (list.length ? list.map(rowHTML).join("") : '<div class="empty">No ' + (ui.filter === "all" ? "" : STL[ui.filter].toLowerCase() + " ") + 'rows yet.</div>') + '</div>';
     return ebayPrompt() + autoNote() +
       '<div class="lacts"><button data-ladd="manual">' + I("plus") + '<span>Manual add</span></button><button data-ladd="csv">' + I("file") + '<span>CSV import</span></button><button data-ladd="receipt">' + I("receipt") + '<span>Receipt photo</span></button></div>' +
-      '<div class="kpis" style="margin-top:14px"><div class="kpi"><span>Rows</span><b class="num">' + rows.length + '</b><small>' + rows.filter(function (r) { return r.sample; }).length + ' sample</small></div><div class="kpi"><span>Spent</span><b class="num">' + money(spent) + '</b><small>price + ship + tax</small></div><div class="kpi"><span>Sold</span><b class="num" style="color:var(--gold2)">' + money(soldSum) + '</b><small>' + cnt.sold + ' cards</small></div></div>' +
+      '<div class="kpis" style="margin-top:14px"><div class="kpi"><span>Rows</span><b class="num">' + rows.length + '</b><small>on this phone</small></div><div class="kpi"><span>Spent</span><b class="num">' + money(spent) + '</b><small>price + ship + tax</small></div><div class="kpi"><span>Sold</span><b class="num" style="color:var(--gold2)">' + money(soldSum) + '</b><small>' + cnt.sold + ' cards</small></div></div>' +
       '<div class="scopes" id="lfilt">' + ["all"].concat(ST).map(function (s) { return '<button data-f="' + s + '" class="' + (ui.filter === s ? "on" : "") + '">' + (s === "all" ? "All" : STL[s]) + ' · ' + cnt[s] + '</button>'; }).join("") + '</div>' +
       '<div style="height:10px"></div>' + table +
-      '<div class="row between" style="margin-top:14px"><button class="btn btn-ghost btn-sm" id="lexport">' + I("download") + 'Export CSV</button><button class="link-btn" id="lreset">Reset sample rows</button></div>' +
-      '<div class="note" style="margin-top:12px">' + I("shield") + '<div>Stored on this phone only. Nothing is uploaded. Rows marked <b style="color:var(--gold2)">Sample</b> are invented demo rows.</div></div>';
+      '<div class="row between" style="margin-top:14px"><button class="btn btn-ghost btn-sm" id="lexport">' + I("download") + 'Export CSV</button><button class="link-btn" id="lreset">Clear all</button></div>' +
+      '<div class="note" style="margin-top:12px">' + I("shield") + '<div>Your cards and real costs, stored on this phone only. Nothing is uploaded.</div></div>';
   }
   function rowHTML(r) {
     var open = ui.open === r.id;
@@ -58,7 +58,7 @@ window.CH_LEDGER = function (U) {
     var det = !open ? "" : '<div class="lt-det"><dl class="kv small">' +
       '<dt>Seller</dt><dd>' + (esc(r.seller) || '<span class="dim">None</span>') + '</dd><dt>Price</dt><dd class="num">' + m2(r.price) + '</dd><dt>Shipping</dt><dd class="num">' + m2(r.shipping) + '</dd><dt>Tax</dt><dd class="num">' + m2(r.tax) + '</dd>' +
       '<dt>Cost</dt><dd class="num" style="color:var(--gold2)">' + m2(r.cost) + '</dd><dt>Date</dt><dd>' + fmtDate(r.date) + '</dd><dt>Order link</dt><dd>' + orderCell(r.order, r.sample) + '</dd>' +
-      (r.status === "sold" ? '<dt>Sold for</dt><dd class="num">' + m2(r.soldFor) + (r.soldVia ? ' <span class="dim">· ' + esc(r.soldVia) + '</span>' : "") + '</dd>' : (r.value ? '<dt>Value<span class="tag-est">SAMPLE</span></dt><dd class="num">' + m2(r.value) + '</dd>' : "")) +
+      (r.status === "sold" ? '<dt>Sold for</dt><dd class="num">' + m2(r.soldFor) + (r.soldVia ? ' <span class="dim">· ' + esc(r.soldVia) + '</span>' : "") + '</dd>' : "") +
       '</dl><div class="h3" style="margin:14px 0 8px">Status</div><div class="seg seg-sm lt-st" data-id="' + r.id + '" style="max-width:none">' + ST.map(function (s) { return '<button data-s="' + s + '" class="' + (r.status === s ? "on" : "") + '">' + STL[s] + '</button>'; }).join("") + '</div></div>';
     return '<div class="lt-item' + (open ? " open" : "") + '"><button class="lt-row" data-open="' + r.id + '" aria-expanded="' + open + '"><span class="c"><b>' + esc(r.card) + '</b><span>' + (r.grade ? esc(r.grade) + " · " : "") + fmtDate(r.date) + ' ' + tag + '</span></span><span class="f">' + fromCell(r.from) + '</span><span class="r num">' + money(r.cost) + '</span><span class="r">' + stChip(r.status) + '</span></button>' + det + '</div>';
   }
@@ -77,19 +77,18 @@ window.CH_LEDGER = function (U) {
   }
   function signed(v) { return '<em class="sg ' + (v >= 0 ? "pill-up" : "pill-down") + '">' + (v >= 0 ? "+" : "") + money(v) + '</em>'; }
   function portfolioHTML(pf) {
-    if (!pf.count && !pf.soldCount) return '<div class="card" style="text-align:center;padding:26px 18px"><b>No cards yet</b><p class="muted small">Add buys in Portfolio and they show up here.</p><a class="btn btn-gold btn-sm" href="#/ledger">Open Portfolio</a></div>';
-    return '<div class="card gold pf-hero"><div class="row between"><span class="h3" style="color:var(--gold2)">Current value</span><span class="chip demo">SAMPLE</span></div>' +
-      '<div class="callword num" style="font-size:44px;margin:6px 0 2px">' + money(pf.value) + '</div>' +
-      '<p class="micro-note">SAMPLE · Not advice.</p>' +
-      '<div class="small" style="font-weight:700">' + signed(pf.unrealized) + ' <span class="' + (pf.unrealized >= 0 ? "pill-up" : "pill-down") + '">(' + (pf.unrealizedPct >= 0 ? "+" : "\u2212") + Math.abs(pf.unrealizedPct).toFixed(1) + '%)</span> <span class="muted" style="font-weight:600">after fees, if sold today</span></div>' +
-      '<div class="chart-wrap" style="margin-top:12px">' + pfChart(pf.series, pf.costSeries) + '</div>' +
-      '<div class="row" style="gap:16px;margin-top:4px"><span class="small muted row" style="gap:6px"><i class="lg lg-v"></i>Value (sample)</span><span class="small muted row" style="gap:6px"><i class="lg lg-c"></i>Cost basis</span></div></div>' +
-      '<div class="pf-grid"><div class="kpi"><span>Cost basis</span><b class="num">' + money(pf.costBasis) + '</b><small>' + pf.count + ' cards held</small></div><div class="kpi"><span>Current value</span><b class="num">' + money(pf.value) + '</b><small>sample values</small></div>' +
-      '<div class="kpi"><span>Gain / loss after fees</span><b class="num">' + signed(pf.unrealized) + '</b><small>unrealized</small></div><div class="kpi"><span>Realized</span><b class="num">' + signed(pf.realized) + '</b><small>' + pf.soldCount + ' sold, after fees</small></div></div>' +
-      '<p class="small dim" style="margin:10px 2px 0">After fees = ' + esc(pf.fees.label) + '. Card show and other non-eBay sales count no fees.' + (pf.unvalued ? " " + pf.unvalued + " card" + (pf.unvalued === 1 ? " has" : "s have") + " no sample value yet and count at cost." : "") + '</p>' +
-      U.gate("comps") +
+    if (!pf.count && !pf.soldCount) return '<div class="card" style="text-align:center;padding:26px 18px"><b>No cards yet</b><p class="muted small">Add the cards you own with what you paid. They stay on this phone.</p><a class="btn btn-gold btn-sm" href="#/ledger">Add a card</a></div>';
+    var hero = pf.valuedCount
+      ? '<div class="callword num" style="font-size:40px;margin:6px 0 2px">' + money(pf.value) + '</div><p class="micro-note">Last exact-card sale from your Card Ladder history · ' + pf.valuedCount + ' of ' + pf.count + ' cards</p>' +
+        '<div class="small" style="font-weight:700">' + signed(pf.unrealized) + ' <span class="' + (pf.unrealized >= 0 ? "pill-up" : "pill-down") + '">(' + (pf.unrealizedPct >= 0 ? "+" : "\u2212") + Math.abs(pf.unrealizedPct).toFixed(1) + '%)</span> <span class="muted" style="font-weight:600">after fees, on valued cards</span></div>'
+      : '<div class="callword" style="font-size:26px;margin:6px 0 4px">Needs comps</div><p class="small muted" style="margin:0">Values come only from exact-card sales in your Card Ladder history. Paste your sold history and matching cards get a value.</p><button class="btn btn-ghost btn-sm" data-connect="cardladder" style="margin-top:10px">Connect Card Ladder</button>';
+    return '<div class="card gold pf-hero"><div class="row between"><span class="h3" style="color:var(--gold2)">Value</span>' + (pf.valuedCount ? '<span class="chip ok">Your comps</span>' : "") + '</div>' + hero + '</div>' +
+      '<div class="pf-grid"><div class="kpi"><span>Cost basis</span><b class="num">' + money(pf.costBasis) + '</b><small>' + pf.count + ' cards held</small></div><div class="kpi"><span>Valued</span><b class="num">' + pf.valuedCount + ' / ' + pf.count + '</b><small>' + pf.unvalued + ' need comps</small></div>' +
+      '<div class="kpi"><span>Realized</span><b class="num">' + signed(pf.realized) + '</b><small>' + pf.soldCount + ' sold, after fees</small></div></div>' +
+      '<p class="small dim" style="margin:10px 2px 0">After fees = ' + esc(pf.fees.label) + '. Card show and other non-eBay sales count no fees.</p>' +
       '<div class="sec"><div class="sec-head"><h3 class="h3">Holdings</h3><a class="link-btn" href="#/ledger">Buys ' + I("right") + '</a></div><div class="card">' +
-      pf.holdings.map(function (h) { return '<div class="lrow" style="grid-template-columns:1fr auto"><div class="nm"><b>' + esc(h.card) + '</b><span>' + (h.grade ? esc(h.grade) + " · " : "") + STL[h.status] + ' · cost ' + money(h.cost) + (h.valued ? "" : " · at cost") + '</span></div><div class="rt" style="text-align:right;display:block"><b class="num" style="display:block;font-size:14.5px">' + money(h.value) + '</b><span class="small num" style="font-weight:700">' + signed(h.gain) + '</span></div></div>'; }).join("") +
+      pf.holdings.map(function (h) { return '<div class="lrow" style="grid-template-columns:1fr auto"><div class="nm"><b>' + esc(h.card) + '</b><span>' + (h.grade ? esc(h.grade) + " · " : "") + STL[h.status] + ' · cost ' + money(h.cost) + '</span></div><div class="rt" style="text-align:right;display:block">' +
+        (h.valued ? '<b class="num" style="display:block;font-size:14.5px">' + money(h.value) + '</b><span class="small num ' + (h.gain >= 0 ? "pill-up" : "pill-down") + '" style="font-weight:700">' + signed(h.gain) + '</span>' : '<span class="chip">Needs comps</span>') + '</div></div>'; }).join("") +
       '</div></div>';
   }
 
@@ -107,9 +106,9 @@ window.CH_LEDGER = function (U) {
     view.querySelectorAll("[data-ladd]").forEach(function (b) { b.onclick = function () { ({ manual: function () { formSheet({}, {}); }, csv: csvSheet, receipt: receiptSheet })[b.dataset.ladd](); }; });
     var ex = document.getElementById("lexport"); if (ex) ex.onclick = exportCSV;
     var rs = document.getElementById("lreset"); if (rs) rs.onclick = function () {
-      U.openSheet('<div class="eyebrow">Reset · confirm</div><h2>Reset to the sample rows?</h2><p class="muted small">This removes rows you added on this phone and restores the sample rows.</p><div class="cta-stack"><button class="btn btn-gold" id="rsok">Reset portfolio sample</button><button class="btn btn-ghost" id="rsno">Keep my rows</button></div>', function () {
+      U.openSheet('<div class="eyebrow">Clear · confirm</div><h2>Clear all your cards?</h2><p class="muted small">This removes every card you added on this phone. It can\'t be undone.</p><div class="cta-stack"><button class="btn btn-gold" id="rsok">Clear all</button><button class="btn btn-ghost" id="rsno">Keep my cards</button></div>', function () {
         document.getElementById("rsno").onclick = U.closeSheet;
-        document.getElementById("rsok").onclick = function () { D.resetLedger().then(function () { U.closeSheet(); ui.open = null; U.toast("Portfolio reset to sample rows."); rerender(); }); };
+        document.getElementById("rsok").onclick = function () { D.resetLedger().then(function () { U.closeSheet(); ui.open = null; U.toast("Cleared."); rerender(); }); };
       });
     };
   }
@@ -201,11 +200,10 @@ window.CH_LEDGER = function (U) {
     U.openSheet('<div class="eyebrow">Portfolio · CSV import</div><h2>Import buys from a CSV</h2><p class="muted small" style="margin:0">eBay purchase history, a flip spreadsheet, or any sheet with card and price columns. Read on this phone; nothing is uploaded.</p>' +
       '<input class="file-input" id="lc-file" type="file" accept=".csv,text/csv"><label class="btn btn-ghost" for="lc-file" style="margin-top:14px">' + I("upload") + 'Choose a CSV file</label>' +
       '<div class="field"><label for="lc-text">Or paste CSV</label><textarea class="input" id="lc-text" rows="5" style="height:auto;padding:12px 14px;line-height:1.4;font-size:12.5px;resize:vertical" placeholder="Item title,Seller,Item price,Shipping,Sales tax,Order date,…">' + esc(prefill || "") + '</textarea></div>' +
-      '<button class="link-btn" id="lc-sample" style="margin-top:10px">' + I("spark") + 'Use a sample CSV</button>' +
+      
       '<div class="cta-stack"><button class="btn btn-gold" id="lc-go">Preview import</button></div>', function () {
         var ta = document.getElementById("lc-text"), f = document.getElementById("lc-file");
         f.onchange = function () { var file = f.files && f.files[0]; if (!file) return; var rd = new FileReader(); rd.onload = function () { ta.value = String(rd.result || ""); U.toast("Loaded " + file.name + ". Tap Preview import."); }; rd.readAsText(file); };
-        document.getElementById("lc-sample").onclick = function () { ta.value = SAMPLE_CSV; };
         document.getElementById("lc-go").onclick = function () {
           var txt = ta.value; if (!txt.trim()) { U.toast("Choose or paste a CSV first."); return; }
           var res = csvToRows(txt);
@@ -230,13 +228,12 @@ window.CH_LEDGER = function (U) {
     U.openSheet('<div class="eyebrow">Portfolio · receipt photo</div><h2>Snap a receipt or order page</h2><p class="muted small" style="margin:0">A screenshot of the eBay order page works too. The photo stays on this phone.</p>' +
       '<div class="rc-frame" id="rc-frame"><div class="scan-empty"><div class="ring">' + I("receipt") + '</div><b>Receipt or order screenshot</b>Card, seller, price, shipping, tax, date</div></div>' +
       '<input class="file-input" id="rc-file" type="file" accept="image/*" capture="environment">' +
-      '<div class="cta-stack"><label class="btn btn-ghost" for="rc-file">' + I("camera") + 'Take or choose a photo</label><button class="btn btn-gold" id="rc-read">' + I("spark") + 'Read it (demo)</button></div>' +
-      '<p class="small dim" style="margin-top:10px;text-align:center">This demo can\'t read receipts yet. It fills a sample read for you to check and edit, then you confirm.</p>', function () {
+      '<div class="cta-stack"><label class="btn btn-ghost" for="rc-file">' + I("camera") + 'Take or choose a photo</label><button class="btn btn-gold" id="rc-read">' + I("plus") + 'Type the details</button></div>' +
+      '<p class="small dim" style="margin-top:10px;text-align:center">Auto-read isn\'t on yet. Keep the photo next to the form and type what it says.</p>', function () {
         var f = document.getElementById("rc-file");
         f.onchange = function () { var file = f.files && f.files[0]; if (!file) return; photo = URL.createObjectURL(file); document.getElementById("rc-frame").innerHTML = '<img src="' + photo + '" alt="Your receipt photo">'; };
         document.getElementById("rc-read").onclick = function () {
-          formSheet({ card: "2023 Panini Prizm C.J. Stroud RC", grade: "Raw", from: "eBay · Buy It Now", seller: "sample-seller-h", price: 64, shipping: 4.5, tax: 4.8, date: today(), order: "SAMPLE-RECEIPT-3001", status: "bought" },
-            { eyebrow: "Receipt photo · sample read", title: "Check the details", photo: photo, source: "receipt", note: '<b style="color:var(--gold2)">Sample read.</b> Not read from your photo. Check and edit every field before saving.' });
+          formSheet({ date: today(), status: "bought" }, { eyebrow: "Receipt photo", title: "Type the details", photo: photo, source: "receipt", note: "Type the card, price, shipping, and tax from your receipt." });
         };
       });
   }

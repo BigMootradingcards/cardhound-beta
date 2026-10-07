@@ -2,6 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://api.openai.com https://api.anthropic.com https://generativelanguage.googleapis.com https://*.workers.dev https://api.perplexity.ai https://openrouter.ai https://api.groq.com https://api.mistral.ai https://api.together.xyz https://api.deepseek.com https://api.x.ai; object-src 'none'; base-uri 'self'; form-action 'self'; frame-src 'none'; worker-src 'none'; manifest-src 'self'; upgrade-insecure-requests">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<meta name="format-detection" content="telephone=no">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#07070a">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -38,6 +41,7 @@
 <div id="boom-root" aria-live="assertive"></div>
 <script src="data/sample.js"></script>
 <script src="js/config.js"></script>
+<script src="js/vault.js"></script>
 <script src="js/connections.config.js"></script>
 <script src="js/data/adapter.js"></script>
 <script src="js/data/local-ledger.js"></script>

@@ -766,3 +766,18 @@ select.input option{background:#111116;color:var(--text)}
 .site .tick .ic{width:16px;height:16px}
 .site.on{border-color:var(--gold-line)}
 .site.on .tick{background:var(--up);border-color:var(--up);color:#06150e}
+.adv{margin:4px 0 0;border-top:1px solid var(--line);padding-top:8px}
+.adv summary{cursor:pointer;color:var(--muted);font-size:13.5px;font-weight:700;min-height:36px;display:flex;align-items:center}
+.ladder-line{margin:4px 0 10px;font-size:14.5px;color:var(--text)}
+.ladder-line .link-btn{display:inline;padding:0;margin-left:4px;font-size:14.5px}
+.daily-hunt .lrow{text-decoration:none;color:inherit}
+.steps-dots{display:flex;align-items:center;gap:6px;margin:2px 0 6px}
+.steps-dots i{width:26px;height:5px;border-radius:9px;background:var(--line2)}
+.steps-dots i.on{background:var(--gold)}
+.steps-dots span{margin-left:8px;font-size:12.5px;color:var(--muted);font-weight:700}
+.conn-card{margin:0 0 6px}
+.conn-done{display:flex;align-items:center;gap:10px;margin:0 0 10px;color:var(--up)}
+.conn-done .tick{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:var(--up);color:#06150e;flex:none}
+.conn-done .tick .ic{width:16px;height:16px}
+.conn-hub .conn-row+.conn-row{margin-top:10px}
+.link-btn.danger{color:var(--down);justify-content:center;width:100%;min-height:44px}

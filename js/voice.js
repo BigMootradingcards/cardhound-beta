@@ -76,6 +76,7 @@ window.CH_VOICE = function (U) {
     return id;
   }
   function bot(html, say, opts) { return push("bot", '<div class="vb"><div class="vb-h"><span class="vb-dot"></span>CardHound<span class="chip demo">SAMPLE</span></div>' + html + '</div>', Object.assign({ say: say }, opts || {})); }
+  function aiBot(html) { return push("bot", '<div class="vb"><div class="vb-h"><span class="vb-dot"></span>Your AI</div>' + html + '</div>'); }
   function btn(label, attrs, gold) { return '<button class="btn ' + (gold ? "btn-gold" : "btn-ghost") + ' btn-xs" ' + attrs + '>' + label + '</button>'; }
   function keep(data) { var k = "k" + (++st.seq); st.store[k] = data; return k; }
 
@@ -90,6 +91,19 @@ window.CH_VOICE = function (U) {
     }
     if (!silentUser) push("user", '<div class="vu">' + esc(text) + '</div>');
     var inp = document.getElementById("vc-in"); if (inp) inp.value = "";
+    /* Oct 7 beta: Ask runs on the user's connected AI. Card hunts go to the real hunt. Rules + SAMPLE only without an AI. */
+    if (U.canAi && U.canAi()) {
+      var r0 = V.routeVoiceIntent(text, { currentCard: U.lastCard() });
+      if (r0.intent === "card_hunt" && U.submitHunt) { U.submitHunt(text); return; }
+      var mid = aiBot('<p class="muted">Asking your AI…</p>');
+      U.aiAsk(text).then(function (res) {
+        var el = document.getElementById(mid); if (!el) return;
+        var html = res.ok ? '<p>' + esc(res.text).replace(/\n+/g, "</p><p>") + '</p><p class="micro-note">From your AI. Not a sold price. Not advice.</p>' : '<p>' + esc(res.error) + '</p>';
+        el.innerHTML = '<div class="vb"><div class="vb-h"><span class="vb-dot"></span>Your AI</div>' + html + '</div>';
+        if (res.ok) speak(res.text);
+      });
+      return;
+    }
     var last = U.lastCard();
     var r = V.routeVoiceIntent(text, { currentCard: last });
     listings().then(function () { handle(r, text, last); });
@@ -294,7 +308,8 @@ window.CH_VOICE = function (U) {
       Object.keys(o.set).forEach(function (f) { var val = o.set[f]; if (f === "brand") return; ans[f] = val; });
       push("user", '<div class="vu">' + esc(o.label) + '</div>');
       hunt(d.text, ans);
-    } else if (v === "say") submit(b.dataset.t);
+    } else if (v === "aiconnect") { if (U.aiSheet) U.aiSheet({ then: function () { screen(); } }); }
+    else if (v === "say") submit(b.dataset.t);
     else if (v === "help") help();
     else if (v === "go") location.hash = b.dataset.h;
     else if (v === "pickcard") { var L = byId(b.dataset.id); U.setLastCard({ listingId: L.id, title: L.title, source: "pick", id: L.id === "vh14" ? "PUJOLS-01TCT-T247" : null }); push("user", '<div class="vu">' + esc(L.title) + '</div>'); submit(b.dataset.t, true); }
@@ -336,6 +351,7 @@ window.CH_VOICE = function (U) {
     v.innerHTML = '<div class="vc-head"><div><div class="eyebrow">Voice and prompt search</div><h1 class="h1" style="font-size:30px">Ask <em>CardHound</em></h1></div>' +
       '<button class="icon-btn vc-tts' + (ttsOn() ? " on" : "") + '" data-v="tts" aria-pressed="' + (ttsOn() ? "true" : "false") + '" aria-label="Spoken replies">' + I("speaker") + '</button></div>' +
       '<p class="lead" style="margin-top:2px">Say or type a card, a hunt, or a question. Exact variants only. ' + (SR ? "Tap the mic to talk." : "Voice isn't available in this browser, so type instead.") + '</p>' +
+      (U.canAi && U.canAi() ? '<p class="small muted" style="margin:-6px 0 12px">Runs on your AI.</p>' : '<button type="button" class="ai-banner" data-v="aiconnect"><span><b>Connect your AI so Ask runs on it</b><span>Until then, answers are SAMPLE.</span></span>' + I("right") + '</button>') +
       '<div id="vc-ex" class="vc-ex"' + (st.msgs.length ? ' style="display:none"' : "") + '>' + EXAMPLES.map(function (e) { return '<button class="chip" data-v="say" data-t="' + esc(e) + '">' + esc(e) + '</button>'; }).join("") + '</div>' +
       '<div id="vc-thread" class="vc-thread">' + st.msgs.map(function (m) { return '<div class="vmsg ' + m.role + '" id="' + m.id + '">' + m.html + '</div>'; }).join("") + '</div>' + U.footer() + '<div class="vc-spacer"></div>';
     var c = document.getElementById("vc-composer");
