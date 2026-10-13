@@ -101,13 +101,16 @@
     (items || []).forEach(function (it) {
       if (!it) return;
       var t = String(it.title || ""), low = t.toLowerCase(), flags = [];
-      if ((p.players || []).length && !p.players.some(function (n) { var last = String(n).toLowerCase().trim().split(/\s+/).pop(); return last && low.indexOf(last) > -1; })) return;
+      if ((p.players || []).length) {
+        var nc = CM ? p.players.map(function (n) { return CM.nameCheck(n, { raw: t }); }) : p.players.map(function (n) { var last = String(n).toLowerCase().trim().split(/\s+/).pop(); return last && low.indexOf(last) > -1 ? "ok" : "conflict"; });
+        if (nc.indexOf("ok") < 0) { if (nc.indexOf("missing") > -1) flags.push("player not stated"); else return; }
+      }
       if (CM) {
         var g = CM.parse(t);
         if ((p.sets || []).length) {
-          var sets = p.sets.map(function (x) { var q = CM.parse(" " + x + " "); return q.set ? q.set + "|" + q.parallel + "|" + q.insert : null; });
+          var sets = p.sets.map(function (x) { var q = CM.parse(" " + x + " "); return q.set ? q.set + "|" + (/any parallel/i.test(x) ? "*" : q.parallel) + "|" + q.insert : null; });
           if (!g.set) flags.push("set not stated");
-          else if (!sets.some(function (k) { if (!k) return true; var a = k.split("|"); return a[0] === g.set && (a[1] === "base" || a[1] === g.parallel) && (!a[2] || a[2] === g.insert); })) return;
+          else if (!sets.some(function (k) { if (!k) return true; var a = k.split("|"); return a[0] === g.set && (a[1] === "*" || a[1] === g.parallel) && (!a[2] || a[2] === g.insert); })) return;
         }
         if ((p.grades || []).length) {
           var want = p.grades.map(function (x) { var q = CM.parse(" " + x + " "); return q.grader === "raw" ? "raw" : q.grader + " " + q.grade; });

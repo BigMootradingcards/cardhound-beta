@@ -226,6 +226,7 @@
     /* Exact-card gate: any field conflict or anything unreadable is dropped (unpriced), never guessed. */
     return out.filter(function (s) {
       var got = CM.parse([s.year, s.set, s.number ? "#" + String(s.number).replace(/^#/, "") : "", s.player, /^base$/i.test(s.variant || "") ? "" : s.variant, s.title].filter(Boolean).join(" "));
+      got.player = s.player || ""; got.raw = s.title || "";
       return CM.compare(want, got, { ignoreGrade: true }).verdict === "match";
     });
   }

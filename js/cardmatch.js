@@ -60,6 +60,45 @@
     var da = a.replace(/^[A-Z]+/, ""), db = b.replace(/^[A-Z]+/, "");
     return da === db && (da === a || db === b); /* "BT21" ~ "21" when one side has no prefix */
   }
+  /* Player names: case, accents, punctuation, Jr./Sr./II, initials ("K. Griffey"), a few trivial nicknames. */
+  var NICK = { shaq: "shaquille oneal", "the mailman": "karl malone", mj: "michael jordan" };
+  var SUFFIX = { jr: 1, sr: 1, ii: 1, iii: 1, iv: 1 };
+  var STOP = ("rc rookie card cards psa bgs sgc cgc bvg beckett gem mint nm mt ex vg near graded grade pop hof sp ssp ref refractor refractors xfractor prizm prism silver gold " +
+    "parallel auto autograph autographed signed insert base basketball baseball football hockey nba mlb nfl rare low high lot set no protectors members only team " +
+    "topps chrome finest bowman fleer ultra stadium club panini donruss optic select upper deck update draft picks prospects series edition and the of with case hit " +
+    "sticker star all destiny row in action beam season seasons best scoring kings crystalized building blocks classics future stars rated contenders collectors collector edge advantage flair showcase chronicles " +
+    "subs sub grades pristine clean slab sharp crease free or better read new").split(" ");
+  function normName(s) {
+    var t = " " + String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[`'’]/g, "").replace(/[^a-z0-9]+/g, " ") + " ";
+    Object.keys(NICK).forEach(function (k) { t = t.replace(" " + k + " ", " " + NICK[k] + " "); });
+    return t.trim().split(/\s+/).filter(Boolean);
+  }
+  function splitName(n) {
+    var tk = normName(n), suf = "";
+    if (tk.length && SUFFIX[tk[tk.length - 1]]) suf = tk.pop();
+    return { first: tk.length > 1 ? tk[0] : "", last: tk[tk.length - 1] || "", suffix: suf };
+  }
+  function firstOk(a, b) { return !a || !b || a === b || (a.length === 1 && b[0] === a) || (b.length === 1 && a[0] === b); }
+  /* → "ok" | "conflict" | "missing" */
+  function nameCheck(wantName, got) {
+    var W = splitName(wantName); if (!W.last) return "ok";
+    if (got.player) {
+      var G = splitName(got.player);
+      if (!G.last) return "missing";
+      if (G.last !== W.last || !firstOk(W.first, G.first) || (W.suffix && G.suffix && W.suffix !== G.suffix)) return "conflict";
+      return "ok";
+    }
+    var tk = normName(got.raw || ""), i = tk.indexOf(W.last);
+    if (i > -1) {
+      var prev = tk[i - 1] || "", nxt = tk[i + 1] || "";
+      if (prev.length === 1 && W.first && prev !== W.first[0] && /[a-z]/.test(prev)) return "conflict";
+      if (W.first && prev.length > 1 && tk.indexOf(W.first) < 0 && /^[a-z]+$/.test(prev) && STOP.indexOf(prev) < 0 && !firstOk(W.first, prev)) return "conflict";
+      if (W.suffix && SUFFIX[nxt] && nxt !== W.suffix) return "conflict";
+      return "ok";
+    }
+    var left = tk.filter(function (w) { return w.length >= 3 && /^[a-z]+$/.test(w) && STOP.indexOf(w) < 0; });
+    return left.length ? "conflict" : "missing";
+  }
   /* want/got: parsed objects (or partial structured). opts.ignoreGrade for comps grouped by grade elsewhere. */
   function compare(want, got, opts) {
     opts = opts || {};
@@ -82,18 +121,21 @@
       if (want.subs && !got.subs) unk.push("subs");
     }
     if (want.rc && !got.rc) flags.push("RC not stated");
+    if (want.player) { var nc = nameCheck(want.player, got); if (nc === "conflict") bad.push("player: " + want.player + " vs " + (got.player || "another name")); else if (nc === "missing") flags.push("player not stated"); }
     var verdict = bad.length ? "mismatch" : unk.length ? "unpriced" : "match";
     return { verdict: verdict, bad: bad, unknown: unk, flags: flags };
   }
-  function matchTitles(wantTitle, gotTitle, opts) { return compare(parse(wantTitle), parse(gotTitle), opts); }
+  function side(x) { if (x && typeof x === "object") { var o = x.title ? parse(x.title) : fromCard(x); if (x.player) o.player = x.player; return o; } return parse(x); }
+  function matchTitles(wantTitle, gotTitle, opts) { return compare(side(wantTitle), side(gotTitle), opts); }
   /* Structured card (year/set/number/variant/player) → want spec. */
   function fromCard(c) {
     var p = parse([c.year, c.set, c.number ? "#" + String(c.number).replace(/^#/, "") : "", c.player, c.variant, c.grade].filter(Boolean).join(" "));
     if (c.serial) p.serial = String(c.serial).replace(/^\//, "");
     if (c.auto != null) p.auto = !!c.auto;
+    p.player = c.player || ""; p.raw = p.raw.replace(c.player || "", " ");
     return p;
   }
-  var api = { parse: parse, compare: compare, matchTitles: matchTitles, fromCard: fromCard, gradeStr: gradeStr };
+  var api = { parse: parse, compare: compare, matchTitles: matchTitles, fromCard: fromCard, nameCheck: nameCheck, normName: normName, gradeStr: gradeStr };
   root.CH_MATCH = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(typeof window !== "undefined" ? window : globalThis);
