@@ -781,3 +781,27 @@ select.input option{background:#111116;color:var(--text)}
 .conn-done .tick .ic{width:16px;height:16px}
 .conn-hub .conn-row+.conn-row{margin-top:10px}
 .link-btn.danger{color:var(--down);justify-content:center;width:100%;min-height:44px}
+/* pass 3: real lists, report, brief */
+.sale-row.oneoff{opacity:.5}
+.sale-row.oneoff b{text-decoration:line-through}
+.chip.oneoff-tag{font-size:10.5px;height:22px}
+.mv-sales{margin-top:6px}
+.mv-sales summary{cursor:pointer;color:var(--dim)}
+.mover-row .rt small{display:block;font-size:11px;text-align:right}
+.brief-item{padding:10px 0;border-bottom:1px solid rgba(255,255,255,.06)}
+.brief-item:last-child{border-bottom:0}
+.brief-src{color:var(--gold2);text-decoration:underline;word-break:break-word}
+.example-banner{border:1px dashed var(--gold)}
+.needs-comps{margin-top:12px}
+.gem-row{color:inherit;text-decoration:none}
+/* hunt plans */
+.plans-home{margin-top:16px}
+.plan-card a{color:inherit;text-decoration:none}
+.plan-thread{display:flex;flex-direction:column;gap:8px;margin:12px 0}
+.pmsg{padding:10px 12px;border-radius:14px;background:rgba(255,255,255,.05);max-width:88%;font-size:14.5px;line-height:1.4;word-break:break-word}
+.pmsg.me{align-self:flex-end;background:rgba(227,189,106,.16)}
+.pmsg .who{display:block;font-size:11px;opacity:.7;margin-bottom:2px}
+.plan-input{display:flex;gap:8px;align-items:flex-end;margin-top:10px}
+.plan-input textarea{flex:1}
+.plan-kv dd{word-break:break-word}
+.plan-draft{margin-top:10px}

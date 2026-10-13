@@ -279,7 +279,7 @@ function chBoot() {
     var p = parseHash();
     if (!state.intent && ["start", "intent", "connect"].indexOf(p.route) < 0) { location.replace("#/start/intent"); p = parseHash(); }
     var fn = ROUTES[p.route] || ROUTES.scan;
-    var badge = document.querySelector(".badge-sample"); if (badge) badge.style.display = ["scan", "hunt", "start", "intent", "connect", "ledger"].indexOf(p.route) > -1 ? "none" : "";
+    var badge = document.querySelector(".badge-sample"); if (badge) badge.style.display = (["scan", "hunt", "start", "intent", "connect", "ledger", "lists", "markets", "daily", "unpriced", "plan"].indexOf(p.route) > -1 || (p.route === "report" && p.sub !== "example")) ? "none" : "";
     var tb = document.getElementById("tabbar"); if (tb) tb.style.display = p.route === "start" ? "none" : "";
     renderTabs(ROUTES[p.route] ? p.route : "scan");
     view.style.animation = "none"; void view.offsetWidth; view.style.animation = "";
@@ -378,7 +378,7 @@ function chBoot() {
         '<button class="btn btn-gold" id="hunt-go" type="button">' + I("search") + 'Hunt</button>' +
         '<div class="ex-row" aria-label="Examples">' + ex.map(function (e) { return '<button type="button" class="ex-chip" data-ex="' + esc(e) + '">' + esc(e) + '</button>'; }).join("") + '</div>' +
       '</section>' +
-      aiBannerHTML() + last +
+      aiBannerHTML() + last + '<div id="plans-home"></div>' +
       '<details class="photo-more"><summary>' + I("camera") + ' Check a card by photo</summary>' +
         '<section class="home-pane" aria-label="What\'s this card?">' +
           '<div class="scan-frame">' + frame + '</div>' +
@@ -388,6 +388,7 @@ function chBoot() {
         '</section></details>' +
       '<aside class="flow-end" aria-label="Notes"><p>Hunt results are real listings from your AI\'s live web search. Your words go only to the AI you picked, after you agree. Your key stays on this phone.</p><p>Lists and charts marked <b>SAMPLE</b> are sample data.</p><p>A photo stays on this phone until you agree to send it. Not financial advice.</p></aside>';
     if (state.photo) view.querySelector(".photo-more").open = true;
+    paintPlansHome(true);
     var f = document.getElementById("file");
     if (f) {
       f.addEventListener("change", function () {
@@ -570,14 +571,20 @@ function chBoot() {
       };
     });
   }
-  var CONNECT_STEPS = ["ai", "ladder", "sites"];
+  var CONNECT_STEPS = ["ai", "ebay", "ladder", "sites"];
   function connStatus(id) {
-    if (id === "ai") return canLive() ? { on: true, line: "Connected · key …" + CH_AI.maskKey(aiSecret()) } : { on: false, line: LS.get("skip_ai", false) ? "Skipped" : "Not connected" };
+    if (id === "ai") { var tt = LS.get("ai_test", null); return canLive() ? { on: true, line: "Connected · key …" + CH_AI.maskKey(aiSecret()) + (tt && tt.key === CH_AI.maskKey(aiSecret()) ? (tt.ok ? " · tested " + ago(tt.at) : " · last test failed") : " · not tested") } : { on: false, line: LS.get("skip_ai", false) ? "Skipped" : "Not connected" }; }
+    if (id === "ebay") { var eh = LS.get("ebay_test", null); return !CFG.ebayWorkerUrl ? { on: false, line: "Not live yet · your AI searches eBay meanwhile" } : (eh && eh.ok ? { on: true, line: "Live eBay search · checked " + ago(eh.at) } : { on: false, line: eh ? "Live search unreachable · AI fallback" : "Not checked yet" }); }
     if (id === "ladder") { var ph = ladderHookPhase(); if (ph === "none" && hookPendingRows().length) ph = "awaiting"; return ph === "none" ? { on: false, line: LS.get("skip_ladder", false) ? "Skipped" : "Not connected" } : { on: true, line: ph === "live" ? "Live comps" : "Connected · " + hookPendingRows().length + " sales pasted" }; }
     var n = (state.huntSites && state.huntSites.length ? state.huntSites : CH_HUNT.DEFAULT_SITES).length;
     return { on: !!(state.huntSites && state.huntSites.length), line: state.huntSites && state.huntSites.length ? n + " sites picked" : (LS.get("skip_sites", false) ? "Skipped · default sites" : "Default sites") };
   }
-  var CONN_TITLE = { ai: "Your AI", ladder: "Card Ladder", sites: "Hunt sites" };
+  var CONN_TITLE = { ai: "Your AI", ebay: "eBay live search", ladder: "Card Ladder", sites: "Hunt sites" };
+  function ladderCheck() {
+    var rows = hookPendingRows(), withId = rows.filter(function (r) { return r.set && r.number; }).length, dated = rows.map(function (r) { return CH_INSIGHTS.dayNum(r.date); }).filter(function (d) { return d != null; }).sort();
+    var span = dated.length ? new Date(dated[0] * 864e5).toISOString().slice(0, 10) + " to " + new Date(dated[dated.length - 1] * 864e5).toISOString().slice(0, 10) : "no dates";
+    return { n: rows.length, withId: withId, dated: dated.length, line: rows.length + " sales · " + withId + " usable for exact-card matching · " + dated.length + " dated (" + span + ")" };
+  }
   function connectScreen(p, editing) {
     state.ladderHook = LS.get("ladderHook", state.ladderHook) || state.ladderHook; /* fresh status (other tabs/screens may have pasted sales) */
     var parts = (location.hash || "").replace(/^#\/?/, "").split("/");
@@ -588,7 +595,7 @@ function chBoot() {
     var idx = CONNECT_STEPS.indexOf(step);
     var head = editing
       ? '<a class="link-btn" href="' + (step === "hub" ? "#/more" : "#/connect") + '">' + I("left") + (step === "hub" ? "More" : "Connections") + '</a>'
-      : (idx > -1 ? '<div class="steps-dots" aria-label="Step ' + (idx + 1) + ' of 3">' + CONNECT_STEPS.map(function (x, i) { return '<i class="' + (i <= idx ? "on" : "") + '"></i>'; }).join("") + '<span>Step ' + (idx + 1) + ' of 3</span></div>' : "");
+      : (idx > -1 ? '<div class="steps-dots" aria-label="Step ' + (idx + 1) + ' of ' + CONNECT_STEPS.length + '">' + CONNECT_STEPS.map(function (x, i) { return '<i class="' + (i <= idx ? "on" : "") + '"></i>'; }).join("") + '<span>Step ' + (idx + 1) + ' of ' + CONNECT_STEPS.length + '</span></div>' : "");
     var st = connStatus(step === "hub" || step === "done" ? "ai" : step);
     var done = '<div class="conn-done"><span class="tick on">' + I("check") + '</span><b>' + esc(st.line) + '</b></div>';
     var skipBtn = editing ? "" : '<button class="btn btn-ghost" id="c-skip" type="button">Skip</button>';
@@ -597,10 +604,15 @@ function chBoot() {
       html = '<h1 class="h1">Connect your AI</h1><p class="lead">It hunts real listings for you and answers Ask. One key. It stays on this phone.</p>' +
         '<section class="card conn-card">' + (st.on ? done : "") + aiKeyField("c-ai-key") +
         '<details class="adv" id="ai-adv"' + (aiEndpoint() ? " open" : "") + '><summary>Endpoint (advanced)</summary><div class="field"><label for="ai-endpoint">Endpoint URL</label><input class="input" id="ai-endpoint" type="url" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://… (only if your key needs it)" value="' + esc(aiEndpoint()) + '"></div></details></section>' +
-        '<div class="cta-stack"><button class="btn btn-gold" id="c-go" type="button">' + (st.on ? "Save" : "Connect") + '</button>' + (st.on ? '<button class="btn btn-ghost" id="c-next" type="button">' + (editing ? "Done" : "Next") + '</button><button class="link-btn danger" id="c-off" type="button">Disconnect</button>' : skipBtn) + '</div>';
+        '<div class="cta-stack"><button class="btn btn-gold" id="c-go" type="button">' + (st.on ? "Save" : "Connect") + '</button>' + (st.on ? '<button class="btn btn-ghost" id="c-test" type="button">Test my AI key</button><p class="small muted" id="c-test-out" role="status" style="margin:0"></p><button class="btn btn-ghost" id="c-next" type="button">' + (editing ? "Done" : "Next") + '</button><button class="link-btn danger" id="c-off" type="button">Disconnect</button>' : skipBtn) + '</div>';
+    } else if (step === "ebay") {
+      html = '<h1 class="h1">eBay live search</h1><p class="lead">Official eBay search for live listings, auction end times and photos. Nothing to sign in to: CardHound runs it for you.</p>' +
+        '<section class="card conn-card"><div class="conn-done"><span class="tick' + (st.on ? " on" : "") + '">' + I("check") + '</span><b>' + esc(st.line) + '</b></div>' +
+        (CFG.ebayWorkerUrl ? '' : '<p class="small muted" style="margin:8px 0 0">Until it\'s live, your AI\'s web search covers eBay. No eBay password, ever.</p>') + '</section>' +
+        '<div class="cta-stack">' + (CFG.ebayWorkerUrl ? '<button class="btn btn-gold" id="c-etest" type="button">Test eBay search</button>' : "") + '<button class="btn btn-ghost" id="c-next" type="button">' + (editing ? "Done" : "Next") + '</button></div>';
     } else if (step === "ladder") {
       html = '<h1 class="h1">Card Ladder</h1><p class="lead"><b>Required for live sold comps.</b> Bring your own Card Ladder account: paste or import the sold history you export. No password. No scraping.</p>' +
-        '<section class="card conn-card">' + (st.on ? done : '<p class="small muted" style="margin:0">Skip it and you can still hunt and confirm cards. Comps wait until it\'s connected.</p>') + '</section>' +
+        '<section class="card conn-card">' + (st.on ? done + '<p class="small muted ladder-check" style="margin:8px 0 0">Paste check: ' + esc(ladderCheck().line) + (ladderCheck().withId < ladderCheck().n ? ". Rows without set and card number can't price a card." : ".") + '</p>' : '<p class="small muted" style="margin:0">Skip it and you can still hunt and confirm cards. Comps wait until it\'s connected.</p>') + '</section>' +
         '<div class="cta-stack"><button class="btn btn-gold" id="c-ladder" type="button">' + (st.on ? "Add more sales" : "Connect Card Ladder") + '</button>' + (st.on ? '<button class="btn btn-ghost" id="c-next" type="button">' + (editing ? "Done" : "Next") + '</button><button class="link-btn danger" id="c-off" type="button">Disconnect</button>' : skipBtn) + '</div>';
     } else if (step === "sites") {
       var picked = (state.huntSites && state.huntSites.length ? state.huntSites : CH_HUNT.DEFAULT_SITES).slice();
@@ -638,11 +650,132 @@ function chBoot() {
         if (!commitAi(document.getElementById("c-ai-key").value, document.getElementById("ai-endpoint").value, true)) return;
         LS.set("skip_ai", false); toast("Your AI is connected on this phone."); rerender();
       };
-      var off = document.getElementById("c-off"); if (off) off.onclick = function () { disconnectAi(); toast("Your AI is disconnected."); rerender(); };
+      var off = document.getElementById("c-off"); if (off) off.onclick = function () { disconnectAi(); LS.set("ai_test", null); toast("Your AI is disconnected."); rerender(); };
+      var tb = document.getElementById("c-test");
+      if (tb) tb.onclick = function () {
+        var out = document.getElementById("c-test-out"); out.textContent = "Testing with a tiny request…"; tb.disabled = true;
+        var prov = CH_AI.normalize(state.ai).provider, req = CH_HUNT.buildPlainRequest(prov, aiSecret(), "Reply with the single word OK.", aiEndpoint());
+        if (!req) { out.textContent = "Your AI isn't set up yet."; tb.disabled = false; return; }
+        fetch(req.url, req.init).then(function (res) { return res.json().catch(function () { return {}; }).then(function (j) { return { status: res.status, json: j }; }); }).then(function (r) {
+          var ok = r.status >= 200 && r.status < 300 && !!CH_HUNT.readReply(prov, r.json).text;
+          LS.set("ai_test", { ok: ok, at: Date.now(), key: CH_AI.maskKey(aiSecret()) });
+          out.textContent = ok ? "It works. Your AI answered." : (r.status === 401 || r.status === 403 ? "Your AI key didn't work. Check it and save again." : r.status === 429 ? "Your AI account is out of credit or rate-limited." : "Your AI answered with an error (" + r.status + ").");
+        }, function () { LS.set("ai_test", { ok: false, at: Date.now(), key: CH_AI.maskKey(aiSecret()) }); out.textContent = "Couldn't reach your AI. Check your connection or endpoint."; }).then(function () { tb.disabled = false; });
+      };
+    } else if (step === "ebay") {
+      var et = document.getElementById("c-etest");
+      if (et) et.onclick = function () { et.disabled = true; CH_HUNT._resetHealth(); CH_HUNT.workerHealthy(CFG.ebayWorkerUrl, fetch.bind(window)).then(function (ok) { LS.set("ebay_test", { ok: ok, at: Date.now() }); toast(ok ? "eBay live search works." : "eBay live search didn't answer. Hunts fall back to your AI."); rerender(); }); };
     } else {
       document.getElementById("c-ladder").onclick = function () { LS.set("skip_ladder", false); connectSheet("cardladder"); state.connDirty = true; };
       var off2 = document.getElementById("c-off"); if (off2) off2.onclick = function () { state.ladderHook = defaultLadderHook(); state.liveSales = null; saveLadderHook(); toast("Card Ladder disconnected. Pasted sales removed from this phone."); rerender(); };
     }
+  }
+
+  /* HUNT PLANS: saved patterns built with your AI. On this device only. */
+  function getPlans() { var v = LS.get("plans", []); return (Array.isArray(v) ? v : []).map(function (x) { var p = CH_PLANS.validatePlan(x, siteIds()); if (!p) return null; p.id = String(x.id || "").replace(/[^\w-]/g, "").slice(0, 24) || ("p" + Date.now().toString(36)); p.lastRun = +x.lastRun || 0; p.result = x.result && Array.isArray(x.result.rows) ? x.result : null; return p; }).filter(Boolean); }
+  function savePlans(list) { LS.set("plans", list.slice(0, 12)); }
+  function siteIds() { return CH_HUNT.SITES.map(function (x) { return x.id; }); }
+  function planById(id) { return getPlans().filter(function (x) { return x.id === id; })[0] || null; }
+  function planSummaryHTML(p) {
+    var kv = function (a, b) { return b ? '<dt>' + a + '</dt><dd>' + esc(b) + '</dd>' : ""; };
+    return '<dl class="kv plan-kv">' + kv("Hunt", p.query) + kv("Players", p.players.join(", ")) + kv("Sets", p.sets.join(", ")) + kv("Grades", p.grades.join(", ")) +
+      kv("Max price", p.maxPrice ? "$" + p.maxPrice : "") + kv("Sites", p.sites.map(function (id) { var x = CH_HUNT.siteById(id); return x ? x.name : id; }).join(", ")) +
+      kv("Rules", p.rules.join("; ")) + kv("How often", CH_PLANS.CADENCE[p.cadence]) + kv("Hands back", CH_PLANS.DELIVER[p.deliverable]) + '</dl>';
+  }
+  function planRowsHTML(r) {
+    if (!r) return '<p class="small muted" style="margin:6px 0 0">Not run yet.</p>';
+    return (r.rows.length ? r.rows.map(function (x) { var it = x.item; return '<a class="lrow daily-row" href="' + esc(it.link || it.url) + '" target="_blank" rel="noopener noreferrer sponsored"><div class="nm"><b>' + esc(it.title) + '</b><span>' + esc(it.source || "") + (x.line ? " · " + esc(x.line) : "") + '</span></div><span class="num">' + money(it.price, true) + '</span></a>'; }).join("") : "") +
+      (r.note ? '<p class="small muted" style="margin:6px 0 0">' + esc(r.note) + '</p>' : "");
+  }
+  function runPlan(id) {
+    var p = planById(id); if (!p) return Promise.resolve({ ok: false });
+    var h = CH_PLANS.toHunt(p);
+    return CH_HUNT.run(huntOpts({ query: h.query, chips: h.chips }, { sites: h.sites || state.huntSites })).then(function (r) {
+      var list = getPlans(), q = list.filter(function (x) { return x.id === id; })[0]; if (!q) return r;
+      if (r.ok) {
+        var items = CH_HUNT.applyChips(r.items || [], h.chips);
+        var d = CH_PLANS.deliver(q, items, function (its) { return CH_INSIGHTS.gems(its, hookPendingRows()).rows; });
+        q.result = { rows: d.rows.map(function (x) { var it = x.item; return { line: x.line, item: { title: it.title, price: it.price, shipping: it.shipping, url: it.url, link: it.link, source: it.source } }; }), note: d.note, at: Date.now() };
+        q.lastRun = Date.now();
+      } else q.result = { rows: [], note: CH_HUNT.failLine(r), at: Date.now() };
+      savePlans(list);
+      return r;
+    });
+  }
+  function paintPlansHome(auto) {
+    var el = document.getElementById("plans-home"); if (!el) return;
+    var list = getPlans();
+    el.innerHTML = '<section class="plans-home"><div class="row between"><h2 class="h3" style="margin:0">Your hunt plans</h2><a class="link-btn" href="#/plan/new">+ New plan</a></div>' +
+      (list.length ? list.map(function (p) {
+        return '<div class="card plan-card" style="margin-top:8px"><div class="row between"><a href="#/plan/' + esc(p.id) + '"><b>' + esc(p.name) + '</b></a><button class="btn btn-ghost btn-xs" type="button" data-plan-run="' + esc(p.id) + '">Run</button></div>' +
+          '<p class="small muted" style="margin:2px 0 0" id="pl-st-' + esc(p.id) + '">' + esc(CH_PLANS.DELIVER[p.deliverable]) + (p.lastRun ? " · " + ago(p.lastRun) : "") + '</p>' + (p.result ? planRowsHTML({ rows: p.result.rows.slice(0, 3), note: p.result.note }) : "") + '</div>';
+      }).join("") : '<p class="small muted" style="margin:6px 0 0">Tell your AI what to hunt, how often, and what to hand back. It saves as a plan you can run from here.</p>') + '</section>';
+    el.querySelectorAll("[data-plan-run]").forEach(function (b) {
+      b.onclick = function () {
+        if (!canLive() && !(CFG.ebayWorkerUrl)) { aiSheet(); return; }
+        leaveGate(function () { var st = document.getElementById("pl-st-" + b.dataset.planRun); if (st) st.textContent = "Running…"; runPlan(b.dataset.planRun).then(function () { if (parseHash().route === "scan") paintPlansHome(); }); });
+      };
+    });
+    if (auto && canLive() && LS.get("leaveOk", false) && !paintPlansHome.busy) {
+      var stale = list.filter(function (p) { return CH_PLANS.isStale(p); }).slice(0, 2);
+      if (stale.length) {
+        paintPlansHome.busy = true;
+        stale.reduce(function (pr, p) { return pr.then(function () { var st = document.getElementById("pl-st-" + p.id); if (st) st.textContent = "Refreshing…"; return runPlan(p.id); }); }, Promise.resolve())
+          .then(function () { paintPlansHome.busy = false; if (parseHash().route === "scan") paintPlansHome(); });
+      }
+    }
+  }
+  function planScreen(pr) {
+    var parts = (location.hash || "").replace(/^#\/?/, "").split("/"), id = parts[1] || "new", edit = id === "new" || parts[2] === "edit";
+    var existing = id !== "new" ? planById(id) : null;
+    if (id !== "new" && !existing) { location.hash = "#/scan"; return; }
+    if (!edit) {
+      view.innerHTML = '<a class="link-btn" href="#/scan">' + I("left") + 'Home</a><div class="eyebrow" style="margin-top:10px">Hunt plan</div><h1 class="h1" style="font-size:26px">' + esc(existing.name) + '</h1>' +
+        '<div class="card">' + planSummaryHTML(existing) + '</div><h2 class="h3" style="margin-top:14px">' + esc(CH_PLANS.DELIVER[existing.deliverable]) + '</h2><div class="card" id="plan-res">' + planRowsHTML(existing.result) + '</div>' +
+        '<div class="cta-stack"><button class="btn btn-gold" id="plan-run" type="button">Run now</button><a class="btn btn-ghost" href="#/plan/' + esc(id) + '/edit">Edit with your AI</a><button class="link-btn danger" id="plan-del" type="button">Delete plan</button></div>' + footReal();
+      document.getElementById("plan-run").onclick = function () {
+        if (!canLive() && !CFG.ebayWorkerUrl) { aiSheet(); return; }
+        leaveGate(function () { document.getElementById("plan-res").innerHTML = '<p class="small muted">Running…</p>'; runPlan(id).then(function () { if (parseHash().route === "plan") planScreen(); }); });
+      };
+      document.getElementById("plan-del").onclick = function () { savePlans(getPlans().filter(function (x) { return x.id !== id; })); toast("Plan deleted from this phone."); location.hash = "#/scan"; };
+      return;
+    }
+    if (!state.planDraft || state.planDraft.id !== id) {
+      state.planDraft = { id: id, plan: existing ? Object.assign({}, existing) : null, thread: [{ who: "ai", text: existing ? "What should change in \u201c" + existing.name + "\u201d?" : "What do you want to hunt? Players, sets, grades, a price cap, which sites, how often, and what I should hand back (for example: top 5 under comps with links)." }] };
+    }
+    var dft = state.planDraft;
+    function draw(busy) {
+      view.innerHTML = '<a class="link-btn" href="' + (existing ? "#/plan/" + esc(id) : "#/scan") + '">' + I("left") + (existing ? "Plan" : "Home") + '</a><div class="eyebrow" style="margin-top:10px">' + (existing ? "Edit plan" : "New hunt plan") + '</div><h1 class="h1" style="font-size:26px">Build it with your AI</h1>' +
+        (canLive() ? "" : '<div class="card"><b>Connect your AI first.</b><p class="small muted" style="margin:6px 0 10px">Your AI proposes the plan; you edit it.</p><a class="btn btn-gold btn-sm" href="#/connect/ai">Connect your AI</a></div>') +
+        '<div class="plan-thread" id="plan-thread">' + dft.thread.slice(-8).map(function (m) { return '<div class="pmsg ' + (m.who === "you" ? "me" : "ai") + '"><span class="who">' + (m.who === "you" ? "You" : "Your AI") + '</span>' + esc(m.text) + '</div>'; }).join("") + (busy ? '<div class="pmsg ai"><span class="who">Your AI</span>…</div>' : "") + '</div>' +
+        (dft.plan ? '<div class="card plan-draft"><div class="row between"><b>Proposed plan</b><span class="chip">Draft</span></div>' + planSummaryHTML(dft.plan) +
+          '<div class="field"><label for="plan-name">Name</label><input class="input" id="plan-name" maxlength="40" value="' + esc(dft.plan.name) + '"></div><button class="btn btn-gold" id="plan-save" type="button">Save plan</button></div>' : "") +
+        '<div class="plan-input"><textarea class="input" id="plan-msg" rows="2" maxlength="500" placeholder="e.g. Raw 1998 Chrome rookies under $150, eBay and COMC, daily, top 5 under comps" aria-label="Message your AI"' + (canLive() && !busy ? "" : " disabled") + '></textarea><button class="btn btn-gold" id="plan-send" type="button"' + (canLive() && !busy ? "" : " disabled") + '>Send</button></div>' +
+        '<p class="small dim">Saved on this phone. Your messages go only to your AI.</p>';
+      var send = document.getElementById("plan-send");
+      if (send) send.onclick = function () {
+        var msg = CH_HUNT.cleanText(document.getElementById("plan-msg").value, 500); if (!msg) return;
+        if (window.CH_CRISIS && CH_CRISIS.match && CH_CRISIS.match(msg)) { toast("If you're struggling, call or text 988 (US)."); return; }
+        leaveGate(function () {
+          dft.thread.push({ who: "you", text: msg }); draw(true);
+          var it = intentNow();
+          CH_PLANS.ask({ provider: CH_AI.normalize(state.ai).provider, key: aiSecret(), endpoint: aiEndpoint(), intent: it ? it.label : "", plan: dft.plan || CH_PLANS.blank(), message: msg, sites: CH_HUNT.SITES, siteIds: siteIds() }).then(function (r) {
+            if (r.ok) { if (r.plan) dft.plan = r.plan; dft.thread.push({ who: "ai", text: r.reply || (r.plan ? "Here's the plan. Edit anything, or save it." : "Tell me a bit more about what to hunt.") }); }
+            else dft.thread.push({ who: "ai", text: CH_HUNT.failLine(r) });
+            if (parseHash().route === "plan") draw(false);
+          });
+        });
+      };
+      var sv = document.getElementById("plan-save");
+      if (sv) sv.onclick = function () {
+        var p = CH_PLANS.validatePlan(Object.assign({}, dft.plan, { name: document.getElementById("plan-name").value }), siteIds()); if (!p) { toast("The plan needs something to hunt."); return; }
+        var list = getPlans(), pid = existing ? existing.id : "p" + Date.now().toString(36);
+        p.id = pid; p.lastRun = existing ? existing.lastRun : 0; p.result = existing ? existing.result : null;
+        list = list.filter(function (x) { return x.id !== pid; }); list.unshift(p); savePlans(list);
+        state.planDraft = null; toast("Plan saved on this phone."); location.hash = "#/plan/" + pid;
+      };
+    }
+    draw(false);
   }
 
   /* ANALYZE */
@@ -897,49 +1030,14 @@ function chBoot() {
       return;
     }
     var card = (decision && decision.picked) ? decision.picked : picked;
-    var pending = hookPendingRows();
-    /* Real listing: never show SAMPLE comps. Mismatch → UNPRICED; no Ladder rows → comps wait. */
-    if (pack.source === "listing") {
-      if (!decision.priced && decision.code !== "no_exact_comp") { state.liveSales = null; state.unpriced = decision; location.hash = "#/unpriced"; return; }
-      if (!pending.length) {
-        state.liveSales = null;
-        state.unpriced = { priced: false, showPrices: false, code: "ladder_needed", title: "Comps wait", ladder: true,
-          headline: "Exact card confirmed. Live comps need your Card Ladder.",
-          detail: "Link Card Ladder (paste your sold history) to see sale-by-sale comps for this exact set, parallel, and year. We never show sample prices for a real listing.",
-          pickedLine: CH_SETGUARD.lineOf(card), readLine: "", picked: card };
-        location.hash = "#/unpriced"; return;
-      }
-    }
-    /* When the user has pasted sold rows, comps come only from exact setguard matches — never SAMPLE inventions. */
-    if (pending.length) {
-      if (!decision.priced && decision.code !== "no_exact_comp") {
-        state.liveSales = null;
-        state.unpriced = decision;
-        location.hash = "#/unpriced";
-        return;
-      }
-      var kept = matchHookSalesFor(card);
-      if (!kept.length) {
-        state.liveSales = null;
-        state.unpriced = {
-          priced: false, showPrices: false, code: "no_exact_comp", title: "UNPRICED",
-          headline: "We won't guess the set.",
-          detail: "No exact-card comps in your Ladder sold history for that set and variant. We won't borrow another card's price.",
-          pickedLine: CH_SETGUARD.lineOf(card), readLine: "", picked: card
-        };
-        location.hash = "#/unpriced";
-        return;
-      }
-      state.liveSales = kept;
-      state.unpriced = null;
-      state.confirmed = card;
-      location.hash = "#/report";
-      return;
-    }
-    state.liveSales = null;
-    if (!decision.priced) { state.unpriced = decision; location.hash = "#/unpriced"; return; }
+    /* Wrong set/parallel vs what we read → UNPRICED. Otherwise: the real report for this exact card (comps only from your Ladder). */
+    if (!decision.priced && decision.code !== "no_exact_comp") { state.liveSales = null; state.unpriced = decision; location.hash = "#/unpriced"; return; }
     state.unpriced = null;
-    state.confirmed = decision.picked;
+    state.confirmed = card;
+    state.confirmedListing = pack.source === "listing" ? (pack.listing || null) : null;
+    state.reportGrade = null;
+    state.liveSales = matchHookSalesFor(card);
+    LS.set("confirmed", { card: card, listing: state.confirmedListing });
     location.hash = "#/report";
   }
   function matchScreen() {
@@ -1034,15 +1132,75 @@ function chBoot() {
       flowEnd({ sample: false, leave: true }) + footer();
     view.innerHTML = h;
   }
-  function reportScreen() {
-    if (ladderCompsLive() && state.confirmed) {
-      renderLiveReport();
+  function footReal() { return '<div class="foot">Estimates and opinions only. Not financial advice.</div>'; }
+  function huntListings() {
+    var out = (state.hunt && state.hunt.items) ? state.hunt.items.slice() : [];
+    savedHunts().forEach(function (sh) { out = out.concat(sh.items || []); });
+    return out;
+  }
+  function cardTitle(c) { return [c.year, c.set, c.number ? "#" + c.number : "", c.player].filter(Boolean).join(" "); }
+  function saleRowHTML(s) {
+    return '<div class="lrow sale-row' + (s.oneOff ? " oneoff" : "") + '"' + (s.oneOff ? ' title="' + esc(s.oneOff) + '"' : "") + '><div class="nm"><b class="num">' + money(s.price, true) + '</b><span>' + esc(s.date || "Date n/a") + " · " + esc(CH_INSIGHTS.gradeLabel(s.grade)) + '</span></div>' +
+      (s.oneOff ? '<span class="chip oneoff-tag">Excluded: one-off</span>' : '<span class="small muted">Counted</span>') + '</div>';
+  }
+  function reportScreen(p) {
+    if (p && p.sub === "example") { sampleReportScreen(); return; }
+    if (!state.confirmed) { var sv = LS.get("confirmed", null); if (sv && sv.card) { state.confirmed = sv.card; state.confirmedListing = sv.listing || null; } }
+    if (!state.confirmed) {
+      view.innerHTML = '<div class="eyebrow">Card report</div><h1 class="h1" style="font-size:28px">No card yet</h1>' +
+        '<p class="lead">Confirm an exact card (from a hunt listing or a photo check) and its report shows here: your Ladder comps, current listings from your hunts, and a call when it\'s priced.</p>' +
+        '<div class="cta-stack"><a class="btn btn-gold" href="#/scan">Start a hunt</a><a class="btn btn-ghost" href="#/report/example">See an example</a></div>' + footReal();
       return;
     }
-
+    renderRealReport();
+  }
+  function renderRealReport() {
+    state.ladderHook = LS.get("ladderHook", state.ladderHook) || state.ladderHook;
+    var X = CH_INSIGHTS, c = state.confirmed, L = state.confirmedListing, title = cardTitle(c);
+    var pending = hookPendingRows(), rep = X.report(c, pending);
+    D.getLedger().then(function (r) { return r; }, function () { return []; }).then(function (rows) {
+      var own = rows.filter(function (r) { if (r.status === "sold") return false; var id = X.identityFor(r.card); return id && CH_SETGUARD.orderSales([Object.assign({ price: 1 }, id)], Object.assign({}, c, { variant: c.variant || "Base" })).length; })[0] || null;
+      var grades = rep.order.slice();
+      [L && L.grade, own && own.grade].forEach(function (g) { if (g != null) { var k = X.gradeKey(g); if (grades.indexOf(k) < 0) grades.push(k); } });
+      if (!grades.length) grades.push("RAW");
+      var sel = state.reportGrade || (L ? X.gradeKey(L.grade) : own ? X.gradeKey(own.grade) : grades[0]);
+      if (grades.indexOf(sel) < 0) grades.push(sel);
+      var g = rep.grades[sel], priced = !!(g && g.all.n);
+      var lt = L && X.gradeKey(L.grade) === sel ? (Number(L.price) || 0) + (Number(L.shipping) || 0) : 0;
+      var cost = own && X.gradeKey(own.grade) === sel ? own.cost : 0;
+      var it = intentNow(), k = X.call({ comps: rep.grades, grade: sel, listingTotal: lt, cost: cost, intent: state.intent, alertPct: it ? it.alertPct : 20 });
+      state.liveSales = priced ? g.sales.filter(function (s) { return !s.oneOff; }) : null;
+      LS.set("lastCard", { title: title, variant: c.variant || "", raw: priced ? g.all.median : null, source: "report" });
+      var callHTML;
+      if (k.call) callHTML = '<section class="callband callbox ' + k.call + '" aria-label="Call"><div class="callpill cp-' + k.call + '">' + k.call + '</div><div class="callword">' + k.call + '</div><p class="because">' + esc(k.why) + '</p>' +
+        '<p class="small" style="margin:8px 0 0;opacity:.8">Rules-based call from your Ladder comps' + (lt ? ", this listing" : cost ? ", what you paid" : "") + ' and your goal. Not advice.' + (k.soft ? " Thin comps: treat as soft." : "") + '</p></section>';
+      else if (k.need === "comps") callHTML = '<section class="card needs-comps" aria-label="Needs comps"><h2 class="h3" style="margin:0">Needs comps</h2><p class="small muted" style="margin:6px 0 10px">No sold sales of this exact card' + (rep.priced ? " in " + esc(X.gradeLabel(sel)) : "") + ' in your Card Ladder paste. Paste its sold history to price it. We never borrow another card\'s price.</p><button class="btn btn-gold btn-sm" type="button" data-connect="cardladder">Connect Card Ladder</button></section>';
+      else callHTML = '<section class="card" aria-label="No call yet"><h2 class="h3" style="margin:0">Priced. No call yet.</h2><p class="small muted" style="margin:6px 0 0">A call needs a price to judge: open this card from a hunt listing, or add what you paid in Portfolio.</p></section>';
+      var statsHTML = priced ? '<div class="stat4" style="margin-top:12px"><div class="kpi median"><span>Median · ' + esc(g.label) + '</span><b class="num">' + money(g.all.median) + '</b><small>' + g.all.n + ' sale' + (g.all.n === 1 ? "" : "s") + ' · your Ladder</small></div>' +
+        '<div class="kpi"><span>Low</span><b class="num">' + money(g.all.low) + '</b></div><div class="kpi"><span>High</span><b class="num">' + money(g.all.high) + '</b></div><div class="kpi"><span># sales</span><b class="num">' + g.all.n + '</b><small>' + (g.excluded ? g.excluded + " one-off excluded" : "counted") + '</small></div></div>' +
+        (g.thin ? '<p class="small muted">Thin comps: fewer than 5 sales. Treat as soft.</p>' : "") +
+        '<table class="tbl" style="margin-top:10px"><thead><tr><th>Window</th><th>Sales</th><th>Median</th></tr></thead><tbody>' + [["30 days", g.w30], ["90 days", g.w90], ["1 year", g.w365]].map(function (w) { return '<tr><td class="gname">' + w[0] + '</td><td class="num">' + w[1].n + '</td><td class="num">' + money(w[1].median) + '</td></tr>'; }).join("") + '</tbody></table>' : "";
+      var soldHTML = g && g.sales.length ? '<div class="sec"><div class="sec-head"><h2 class="h3">Sold · your Card Ladder</h2></div><div class="card">' + g.sales.slice(0, 20).map(saleRowHTML).join("") + '</div><p class="small dim">Exact card only. One-offs stay visible but never count.</p></div>' : "";
+      var lst = X.listingsFor(c, huntListings());
+      var lstHTML = '<div class="sec"><div class="sec-head"><h2 class="h3">Listed now · from your hunts</h2></div>' + (lst.length ? '<div class="card">' + lst.slice(0, 8).map(function (x) {
+        var tot = (Number(x.price) || 0) + (Number(x.shipping) || 0), gg = rep.grades[X.gradeKey(x.grade)], vs = gg && gg.all.n ? (tot / gg.all.median - 1) * 100 : null;
+        return '<a class="lrow daily-row" href="' + esc(x.link || x.url) + '" target="_blank" rel="noopener noreferrer sponsored"><div class="nm"><b>' + esc(x.title) + '</b><span>' + esc(x.source || "") + " · " + esc(X.gradeLabel(x.grade)) + (vs == null ? " · needs comps" : " · " + (vs <= 0 ? Math.round(-vs) + "% under" : Math.round(vs) + "% over") + " comps") + '</span></div><span class="num">' + money(tot, true) + '</span></a>';
+      }).join("") + '</div><p class="small dim">Asking prices with shipping, not sold prices.</p>' : '<div class="card"><p class="small muted" style="margin:0">No current listings for this exact card in your hunts. Run a hunt for it to see some.</p></div>') + '</div>';
+      view.innerHTML = '<a class="link-btn" href="' + (L ? "#/hunt" : "#/scan") + '">' + I("left") + (L ? "Back to hunt" : "Check another") + '</a>' +
+        '<div class="row wrap" style="gap:8px;margin:12px 0"><span class="chip ok">Exact card</span>' + (rep.priced ? '<span class="chip ok">Your Card Ladder</span>' : '<span class="chip">Needs comps</span>') + (L ? '<span class="chip">From a listing</span>' : "") + (own ? '<span class="chip">In your Portfolio</span>' : "") + '</div>' +
+        '<h1 class="h2" id="rep-title">' + esc(title) + '</h1><p class="muted" style="margin:4px 0 0">' + esc(c.variant || "Base") + '</p>' +
+        '<div class="seg" id="rep-grade" style="margin-top:12px">' + grades.map(function (x) { return '<button type="button" data-g="' + esc(x) + '" class="' + (x === sel ? "on" : "") + '">' + esc(X.gradeLabel(x)) + '</button>'; }).join("") + '</div>' +
+        callHTML + statsHTML + soldHTML + lstHTML +
+        '<div class="cta-stack" style="margin-top:14px"><button class="btn btn-ghost" type="button" id="rep-watch">' + I("eye") + 'Watch this card</button><a class="btn btn-ghost" href="#/report/example">See an example report</a></div>' +
+        flowEnd({ sample: false }) + footReal();
+      view.querySelectorAll("#rep-grade button").forEach(function (b) { b.onclick = function () { state.reportGrade = b.dataset.g; renderRealReport(); }; });
+      var w = document.getElementById("rep-watch");
+      if (w) w.onclick = function () { D.addVoiceWatch(title + (c.variant && !/^base$/i.test(c.variant) ? " " + c.variant : "")).then(function () { toast("Watching. It shows in Movers once it has Ladder sales."); }); };
+    });
+  }
+  function sampleReportScreen() {
     D.getCardReport("PUJOLS-01TCT-T247").then(function (r) {
       var c = r.card, k = reportCalc(r), raw = r.raw, p9 = k.byG["PSA 9"];
-      LS.set("lastCard", { id: c.id, title: c.year + " " + c.set + " #" + c.number + " " + c.player + (c.rookie ? " RC" : ""), variant: c.variant, raw: raw.w30.median, source: "report" });
       var tr = (raw.w30.median / raw.w90.median - 1) * 100, callWord = "GRADE";
       var because = 'Even a <b>PSA 9</b> nets about <b>' + money(p9.net) + '</b> after fees vs <b>' + money(k.rawNet) + '</b> selling raw, so grading beats selling as is.';
       var gradedRows = r.graded.map(function (g) { return '<tr><td class="gname">' + g.grade + (g.thin ? ' <span class="chip thin">THIN</span>' : "") + '</td><td class="num">' + g.w30.n + '</td><td class="num">' + money(g.w30.low) + '</td><td class="num"><b>' + money(g.w30.median) + '</b></td><td class="num">' + money(g.w30.high) + '</td></tr>'; }).join("");
@@ -1081,7 +1239,8 @@ function chBoot() {
           '<p class="small dim" style="margin:10px 0 0">Exact card only. Other sets and parallels stay off this list.</p>';
       }
       var gradeNow = "Raw", saleNow = "sold", s0 = statsFor("Raw");
-      var h = '<a class="link-btn" href="#/scan">' + I("left") + 'Check another</a>' +
+      var h = '<a class="link-btn" href="#/report">' + I("left") + 'Back</a>' +
+        '<div class="note example-banner" style="margin-top:10px"><div><b>Example only · SAMPLE.</b> Invented data to show the layout. Not a real card price.</div></div>' +
         '<div class="row wrap" style="gap:8px;margin:12px 0"><span class="chip">SAMPLE</span><span class="chip ok">Exact card</span><span class="chip">' + esc(r.asOf) + '</span></div>' +
         '<h1 class="h2">' + c.year + ' ' + esc(c.set) + ' #' + c.number + ' ' + esc(c.player) + '</h1>' +
         '<p class="muted" style="margin:4px 0 0">' + esc(c.variant) + ' · ' + esc(c.team) + '</p>' +
@@ -1231,55 +1390,54 @@ function chBoot() {
       };
     }
   }
+  /* LISTS: built only from your own data (Portfolio + watched cards + your pasted Ladder sales + your hunt listings). */
+  function myCards() {
+    return Promise.all([D.getLedger().catch(function () { return []; }), (D.getVoiceWatch ? D.getVoiceWatch() : Promise.resolve([])).catch(function () { return []; })]).then(function (res) {
+      return res[0].filter(function (r) { return r.status !== "sold" && !r.sample; }).map(function (r) { return { card: r.card, grade: r.grade || "Raw", from: "Portfolio" }; })
+        .concat(res[1].map(function (w) { return { card: w.card, from: "Watching" }; }));
+    });
+  }
+  function listsEmpty(msg) {
+    return '<div class="card list-empty" style="margin-top:12px"><b>' + esc(msg) + '</b><div class="cta-stack" style="margin-top:10px"><button class="btn btn-gold btn-sm" type="button" data-connect="cardladder">Paste Ladder sales</button><a class="btn btn-ghost btn-sm" href="#/scan">Hunt and watch cards</a></div></div>';
+  }
   function marketsScreen(p) {
-    var sub = ["movers", "highs", "picks", "searched", "gems"].indexOf(p.sub) > -1 ? p.sub : "movers";
-    var titles = { movers: "Movers", highs: "New Highs", picks: "Picks", searched: "Most searched", gems: "Gem Hunt" };
-    var head = '<div class="eyebrow">Lists</div><h1 class="h1" style="font-size:28px">' + titles[sub] + '</h1>' +
-      '<div class="subtabs scroll-tabs">' + [["movers", "Movers"], ["highs", "Highs"], ["picks", "Picks"], ["searched", "Searched"], ["gems", "Gems"]].map(function (t) { return '<button type="button" data-sub="' + t[0] + '" class="' + (sub === t[0] ? "on" : "") + '">' + t[1] + '</button>'; }).join("") + '</div>' + '<p class="small muted" style="margin:10px 0 0"><span class="chip">SAMPLE</span> These lists need real sold history across many cards. Not live yet. Your saved hunts in the Daily report are real.</p>';
-    var rer = function () { var y = window.scrollY; marketsScreen({ sub: sub }); setTimeout(function () { window.scrollTo(0, y); }, 0); };
-    if (!state.scopes[sub]) state.scopes[sub] = { view: "overall", value: null };
-    var fn = sub === "gems" ? D.getGems : sub === "highs" ? D.getNewHighs : sub === "picks" ? D.getPicks : sub === "searched" ? D.getMostSearched : D.getMovers, sc = state.scopes[sub];
-    fn(sc).then(function (rows) {
+    state.ladderHook = LS.get("ladderHook", state.ladderHook) || state.ladderHook;
+    var X = CH_INSIGHTS, sub = p.sub === "gems" ? "gems" : "movers", pending = hookPendingRows();
+    var head = '<div class="eyebrow">Lists</div><h1 class="h1" style="font-size:28px">' + (sub === "gems" ? "Gems" : "Movers") + '</h1>' +
+      '<div class="subtabs scroll-tabs">' + [["movers", "Movers"], ["gems", "Gems"]].map(function (t) { return '<button type="button" data-sub="' + t[0] + '" class="' + (sub === t[0] ? "on" : "") + '">' + t[1] + '</button>'; }).join("") + '</div>' +
+      '<p class="small muted" style="margin:10px 0 0">From your own cards, your hunts and your pasted Card Ladder sales. Exact card only.</p>';
+    myCards().then(function (cards) {
       var body = "";
       if (sub === "movers") {
-        var dir = state.moversDir, side = function (r) { return dir === "up" ? r.pct > 0 : r.pct < 0; };
-        var list = rows.filter(function (r) { return !r.thin && side(r); }).sort(function (a, b) { return dir === "up" ? b.pct - a.pct : a.pct - b.pct; });
-        var thinL = rows.filter(function (r) { return r.thin && side(r); });
+        var win = state.moversWin === "7" ? "7" : "30", m = X.movers(cards, pending, { window: win });
         var row = function (r, i) {
-          return '<div class="lrow mover-row' + (r.thin ? " thin" : "") + '"><span class="rk">' + (r.thin ? "\u2013" : i + 1) + '</span><div class="nm"><b>' + esc(r.card) + '</b><span>' + esc(r.grade) + ' · ' + r.sales + ' today · ' + r.base + ' in 30d' + (r.thin ? ' <span class="chip thin" title="' + esc(r.thinWhy) + '">THIN</span>' : "") + '</span></div>' +
-            '<div class="rt">' + sparkSVG(r.spark, r.pct >= 0) + '<span class="pct num ' + (r.pct >= 0 ? "pill-up" : "pill-down") + '">' + pct(r.pct) + '</span></div></div>';
+          return '<div class="lrow mover-row' + (r.ranked ? "" : " thin") + '"><span class="rk">' + (r.ranked ? i + 1 : "\u2013") + '</span><div class="nm"><b>' + esc(r.card) + '</b><span>' + esc(r.grade) + ' · ' + r.wN + ' vs ' + r.bN + ' sales · ' + esc(r.from) + (r.ranked ? "" : ' <span class="chip thin">THIN</span>') + '</span>' +
+            '<details class="mv-sales"><summary class="small">' + r.sales.length + ' sales' + (r.excluded ? " · " + r.excluded + " one-off excluded" : "") + '</summary>' + r.sales.slice(0, 15).map(saleRowHTML).join("") + '</details></div>' +
+            '<div class="rt"><span class="pct num ' + (r.pct >= 0 ? "pill-up" : "pill-down") + '">' + pct(r.pct) + '</span><small class="dim num">' + money(r.bMed) + ' → ' + money(r.wMed) + '</small></div></div>';
         };
-        body = '<div class="seg" id="dir" style="margin-top:12px"><button type="button" data-d="up" class="' + (dir === "up" ? "on" : "") + '">Up</button><button type="button" data-d="down" class="' + (dir === "down" ? "on" : "") + '">Down</button></div>' +
-          '<div class="card" style="margin-top:12px">' + (list.length ? list.map(row).join("") : '<div class="empty">No ranked ' + dir + ' moves in this view (sample).</div>') + '</div>' +
-          (thinL.length ? '<div class="group-h"><h3 class="h3">Thin · shown, not ranked</h3></div><div class="card">' + thinL.map(row).join("") + '</div>' : "") +
-          '<p class="small dim" style="margin-top:12px">Today\'s median vs the prior 30 days. Ranked only with 3+ sales today and 10+ in the prior 30 days. Moves describe past sample sales, not a forecast.</p>' + gate(sc.value === "Pokémon" || sc.value === "Magic" ? "tcg" : "movers");
-      } else if (sub === "highs") {
-        body = BOOM ? BOOM.listHTML(rows) : "";
-      } else if (sub === "picks") {
-        body = '<div style="height:8px"></div>' + ["BUY", "HOLD", "SELL"].map(function (g) {
-          var rs = rows.filter(function (r) { return r.rating === g; });
-          return '<div class="group-h"><span class="callpill cp-' + g + '">' + g + '</span><span class="small dim">' + rs.length + ' sample pick' + (rs.length === 1 ? "" : "s") + '</span></div><div class="card">' +
-            (rs.length ? rs.map(function (r) { return '<div class="prow"><b>' + esc(r.card) + '</b><p>' + esc(r.why) + '</p><div class="tg"><span>' + esc(r.grade) + '</span><span>Buy under <em class="num">' + money(r.buyTarget) + '</em></span><span>Sell near <em class="num">' + money(r.sellTarget) + '</em></span><span>' + r.conf + ' conf.</span></div></div>'; }).join("") : '<div class="empty">No ' + g + ' picks in this view.</div>') + '</div>';
-        }).join("") + '<p class="small dim" style="margin-top:12px">Our opinion from fixed rules, on sample data. Not financial advice; no outcome is guaranteed.</p>';
-      } else if (sub === "gems") {
-        body = '<p class="lead">Hard-to-find and mislabeled listings under the sample comp. Look-only.</p>' +
-          (rows.length ? rows.map(function (d) { return dealCard(d, true); }).join("") : '<div class="empty">No gem hunts in this sample.</div>') +
-          '<p class="small dim" style="margin-top:12px">SAMPLE. CardHound never bids for you.</p>';
+        var ranked = m.rows.filter(function (r) { return r.ranked; }), thin = m.rows.filter(function (r) { return !r.ranked; });
+        body = '<div class="seg" id="mwin" style="margin-top:12px"><button type="button" data-w="7" class="' + (win === "7" ? "on" : "") + '">7 days</button><button type="button" data-w="30" class="' + (win === "30" ? "on" : "") + '">30 days</button></div>';
+        if (!m.rows.length) {
+          body += listsEmpty(!cards.length ? "Watch cards or paste Ladder sales to see movers." : !pending.length ? "Paste Ladder sales for your " + cards.length + " card" + (cards.length === 1 ? "" : "s") + " to see movers." : "None of your " + cards.length + " cards has matched Ladder sales in both windows yet. Watch more cards or paste more sales.");
+        } else {
+          body += (ranked.length ? '<div class="card" style="margin-top:12px">' + ranked.map(row).join("") + '</div>' : "") +
+            (thin.length ? '<div class="group-h"><h3 class="h3">Thin · shown, not ranked</h3></div><div class="card">' + thin.map(row).join("") + '</div>' : "");
+        }
+        body += '<p class="small dim" style="margin-top:12px">' + esc(m.window.label) + ', median of matched sales, same grade. Ranked with 5+ sales in the window and 10+ before it. One-offs stay visible, dimmed, and never count. Past sales, not a forecast.</p>';
       } else {
-        rows.sort(function (a, b) { return b.lookups - a.lookups; });
-        body = '<div class="card" style="margin-top:12px">' + (rows.length ? rows.map(function (r, i) {
-          var ch = r.change > 0 ? '<span class="pill-up small num row" style="font-weight:800;gap:2px">' + I("up", "mini") + r.change + '</span>' : r.change < 0 ? '<span class="pill-down small num row" style="font-weight:800;gap:2px">' + I("down", "mini") + Math.abs(r.change) + '</span>' : '<span class="dim small">steady</span>';
-          return '<div class="lrow"><span class="rk" style="color:' + (i < 3 ? "var(--gold2)" : "var(--dim)") + '">' + (i + 1) + '</span><div class="nm"><b>' + esc(r.card) + '</b><span>' + r.lookups.toLocaleString() + ' lookups · ' + r.users.toLocaleString() + ' people</span></div><div class="rt">' + ch + '</div></div>';
-        }).join("") : '<div class="empty">No sample lookups in this view.</div>') + '</div><p class="small dim" style="margin-top:12px">Sample lookup counts, last 7 days. In the real app these come only from CardHound\'s own lookup log.</p>';
+        var gm = X.gems(huntListings(), pending);
+        body = '<p class="lead" style="margin-top:12px">Listings from your hunts priced under your matched Ladder comps (same card, same grade). Look-only.</p>';
+        body += gm.rows.length ? gm.rows.map(function (g) {
+          var it = g.item;
+          return '<a class="card gem-row" style="display:block;margin-top:10px" href="' + esc(it.link || it.url) + '" target="_blank" rel="noopener noreferrer sponsored"><div class="row between"><b>' + esc(it.title) + '</b><span class="under good num">' + Math.round(g.pctUnder) + '% under</span></div>' +
+            '<div class="small muted" style="margin-top:4px">' + esc(it.source || "") + ' · ' + esc(g.grade) + ' · ' + money(g.total, true) + ' with ship vs comps ' + money(g.comp) + ' (' + g.n + ' sale' + (g.n === 1 ? "" : "s") + ')</div>' +
+            (g.weak ? '<span class="chip thin" style="margin-top:6px">Weak: thin comps (' + g.n + ')</span>' : "") + '</a>';
+        }).join("") : listsEmpty(!huntListings().length ? "No gems yet. Run a hunt, then paste Ladder sales for those cards." : !pending.length ? "Paste Ladder sales for the cards you hunt to find listings under comps." : "No hunt listing is under its matched comps right now (" + gm.checked + " checked).");
+        body += '<p class="small dim" style="margin-top:12px">Comps exclude one-offs. Under 5 sales is flagged weak. CardHound never bids or buys for you.</p>';
       }
-      view.innerHTML = head + '<div class="row between" style="margin-bottom:10px"><span class="small muted">' + esc(state.meta.asOf) + '</span><span class="chip">SAMPLE</span></div>' + (sub === "gems" ? "" : scopeBar(sub)) + body + microNote() + flowEnd() + footer();
+      view.innerHTML = head + body + flowEnd({ sample: false }) + footReal();
       view.querySelectorAll("[data-sub]").forEach(function (b) { b.onclick = function () { var base = parseHash().route === "lists" ? "lists" : "markets"; location.hash = "#/" + base + "/" + b.dataset.sub; }; });
-      view.querySelectorAll("#dir button").forEach(function (b) { b.onclick = function () { state.moversDir = b.dataset.d; rer(); }; });
-      bindScope(sub, rer);
-      if (sub === "highs" && BOOM) BOOM.bindList(rows, sc, rer);
-      if (BOOM) BOOM.maybeAuto();
-      var sc_ = view.querySelector(".scopes"), on_ = sc_ && sc_.querySelector("button.on");
-      if (on_) sc_.scrollLeft = on_.offsetLeft - (sc_.clientWidth - on_.offsetWidth) / 2;
+      view.querySelectorAll("#mwin button").forEach(function (b) { b.onclick = function () { state.moversWin = b.dataset.w; marketsScreen({ sub: "movers" }); }; });
     });
   }
 
@@ -1770,8 +1928,8 @@ function chBoot() {
   }
   function moreScreen() {
     var itn = intentNow();
-    var yours = [["#/intent", "target", "Your intention", itn ? itn.label + " · change" : "Flip, hold, grade, or other"], ["#/connect", "plug", "Add a connection", "Your AI, Card Ladder, hunt sites"], ["#/daily", "report", "Daily report", "Movers and gems, tailored by you"], ["#/ask", "mic", "Ask", "Hunts and questions. Not on Home."], ["#/ledger", "wallet", "Portfolio", "Buys, cost, and value on this phone"], ["#/deals/watch", "eye", "Watchlist", "Cards and listings you are watching"], ["#/deals/snipes", "target", "Auction Watch", "Reminders. You set the max."], ["#/deals", "deals", "For sale", "Asking prices versus sample comps"], ["#/lists/gems", "gem", "Gem Hunt", "Hard-to-find and mislabeled listings"]];
-    var tools = [["#/lists/movers", "markets", "Lists", "Movers, highs, picks, searched, gems"], ["#/tool/alerts", "bell", "Alerts", "Under-comp and new-high alerts"], ["#/settings", "sliders", "Settings", "Card Ladder, AI, import, eBay, PSA"], ["#/tool/fees", "calc", "Fee and net", "What you keep after eBay fees"], ["#/tool/roi", "layers", "Grading ROI", "Raw versus graded after fees"], ["#/tool/variant", "list", "Exact variant check", "Parallel, refractor, reprint, slab"], ["#/tool/offer", "handshake", "Best Offer helper", "Suggested offer and walk-away"]];
+    var yours = [["#/intent", "target", "Your intention", itn ? itn.label + " · change" : "Flip, hold, grade, or other"], ["#/connect", "plug", "Add a connection", "Your AI, Card Ladder, hunt sites"], ["#/daily", "report", "Daily report", "Saved hunts, a sourced brief, your movers"], ["#/ask", "mic", "Ask", "Hunts and questions. Not on Home."], ["#/ledger", "wallet", "Portfolio", "Buys, cost, and value on this phone"], ["#/deals/watch", "eye", "Watchlist", "Cards and listings you are watching"], ["#/deals/snipes", "target", "Auction Watch", "Reminders. You set the max."], ["#/deals", "deals", "For sale", "Asking prices versus sample comps"], ["#/lists/gems", "gem", "Gems", "Hunt listings under your comps"]];
+    var tools = [["#/lists/movers", "markets", "Lists", "Movers and gems from your own cards"], ["#/tool/alerts", "bell", "Alerts", "Under-comp and new-high alerts"], ["#/settings", "sliders", "Settings", "Card Ladder, AI, import, eBay, PSA"], ["#/tool/fees", "calc", "Fee and net", "What you keep after eBay fees"], ["#/tool/roi", "layers", "Grading ROI", "Raw versus graded after fees"], ["#/tool/variant", "list", "Exact variant check", "Parallel, refractor, reprint, slab"], ["#/tool/offer", "handshake", "Best Offer helper", "Suggested offer and walk-away"]];
     if (window.CH_APP && window.CH_APP.moreItemsTop && window.CH_APP.moreItemsTop.length) {
       yours = window.CH_APP.moreItemsTop.map(function (t) { return ["#/" + t[0], t[1], t[2], t[3]]; }).concat(yours);
     }
@@ -1814,66 +1972,58 @@ function chBoot() {
   }
   function ago(t) { var m = Math.round((Date.now() - t) / 60000); if (m < 2) return "just now"; if (m < 60) return m + "m ago"; var h = Math.round(m / 60); return h < 48 ? h + "h ago" : Math.round(h / 24) + "d ago"; }
   function dailyScreen() {
-    var prefs = CH_DAILY.normalize(LS.get("daily", CH_DAILY.defaults));
-    Promise.all([
-      D.getMovers({ view: "overall" }),
-      D.getNewHighs({ view: "overall" }),
-      D.getGems(),
-      D.getDeals(),
-      D.getSavedSearches ? D.getSavedSearches() : Promise.resolve([])
-    ]).then(function (res) {
-      var watchNames = res[3].filter(function (d) { return d.watch; }).map(function (d) { return d.card; });
-      var report = CH_DAILY.build({ movers: res[0], highs: res[1], gems: res[2], hunts: res[4], watchNames: watchNames }, prefs);
-      function rows(list, map) {
-        if (!list.length) return '<div class="empty">Nothing in this slice. Change categories or focus.</div>';
-        return '<div class="card">' + list.slice(0, 8).map(map).join("") + '</div>';
-      }
-      function showSection(key, list) {
-        if (prefs.sections[key] === false) return false;
-        if (list.length) return true;
-        if (prefs.focus === "all" || prefs.focus === "watchlist") return true;
-        return prefs.focus === key;
-      }
-      var body = "";
-      if (showSection("movers", report.movers)) body += '<h2 class="h3" style="margin-top:16px">Movers</h2>' + rows(report.movers, function (r) {
-        return '<div class="lrow daily-row mover-row"><div class="nm"><b>' + esc(r.card) + '</b><span>' + esc(r.grade || "") + '</span></div><span class="num ' + (r.pct >= 0 ? "pill-up" : "pill-down") + '">' + pct(r.pct) + '</span></div>';
-      }) + '<a class="btn btn-ghost" href="#/lists/movers" style="margin-top:10px">Open Movers</a>';
-      if (showSection("highs", report.highs)) body += '<h2 class="h3" style="margin-top:16px">New highs</h2>' + rows(report.highs, function (h) {
-        return '<div class="lrow daily-row"><div class="nm"><b>' + esc(h.card || h.title || "New high") + '</b><span>SAMPLE</span></div></div>';
-      });
-      if (showSection("gems", report.gems)) body += '<h2 class="h3" style="margin-top:16px">Gem Hunt</h2>' + rows(report.gems, function (g) {
-        return '<div class="lrow daily-row"><div class="nm"><b>' + esc(g.card) + '</b><span>' + esc(g.note || g.grade || "") + '</span></div></div>';
-      });
-      if (prefs.sections.hunts !== false) body += '<h2 class="h3" style="margin-top:16px">Saved hunts</h2>' + rows(report.hunts, function (h) {
-        return '<div class="lrow daily-row"><div class="nm"><b>' + esc(h.q || h.name || "Hunt") + '</b></div></div>';
-      });
+    state.ladderHook = LS.get("ladderHook", state.ladderHook) || state.ladderHook;
+    var X = CH_INSIGHTS, prefs = CH_DAILY.normalize(LS.get("daily", CH_DAILY.defaults)), pending = hookPendingRows();
+    var it = intentNow(), today = X.dayKey(), cached = LS.get("brief", null);
+    if (cached && (cached.day !== today || cached.intent !== (state.intent || ""))) cached = null;
+    myCards().then(function (cards) {
+      var mv = X.movers(cards, pending, { window: "7" }).rows.filter(function (r) { return r.ranked; }).slice(0, 3);
+      var gm = X.gems(huntListings(), pending).rows.slice(0, 3);
       view.innerHTML = '<div class="eyebrow">Daily report</div><h1 class="h1" style="font-size:28px">Your daily report</h1>' +
-        '<p class="lead">Your saved hunts first, then the rest of the brief.</p>' +
+        '<p class="lead">Your saved hunts, a brief from your AI, and moves in your own cards.</p>' +
         '<div id="daily-hunts"></div>' +
-        '<div class="row between" style="margin-top:18px"><h2 class="h3" style="margin:0">Market brief</h2><span class="chip">SAMPLE</span></div><p class="small muted" style="margin:4px 0 8px">Movers, highs, and gems need real sold history. Until then this part is sample data.</p>' +
-        '<div class="card daily-tailor"><h2 class="h3">Tailor this brief</h2><p class="daily-now" id="daily-now">' + esc(CH_DAILY.label(prefs)) + '</p>' +
-        '<h2 class="h3">Kind</h2><p class="small muted">Top kinds by what’s selling. Any kind = whole brief.</p>' +
-        '<div class="field" style="margin:8px 0 0"><label class="sr-only" for="daily-kind">Kind</label>' +
-        kindSelectHTML((prefs.categories && prefs.categories[0]) || "", { id: "daily-kind", emptyLabel: "Any kind", ariaLabel: "Kind" }) +
-        '</div>' +
-        '<h2 class="h3">Focus</h2><div class="daily-focus" id="daily-focus" role="group" aria-label="Brief focus">' +
-        [["all", "All"], ["watchlist", "Watchlist"], ["gems", "Gems"], ["movers", "Movers"]].map(function (f) { return '<button type="button" data-f="' + f[0] + '" class="' + (prefs.focus === f[0] ? "on" : "") + '">' + f[1] + '</button>'; }).join("") + '</div>' +
-        '<h2 class="h3">Include</h2>' +
-        [["movers", "Movers"], ["highs", "New highs"], ["gems", "Gem Hunt"], ["hunts", "Saved hunts"]].map(function (s) {
-          var on = prefs.sections[s[0]] !== false;
-          return '<button type="button" class="tool daily-toggle" data-sec="' + s[0] + '" aria-pressed="' + (on ? "true" : "false") + '"><span class="tt"><b>' + s[1] + '</b><span>' + (on ? "On" : "Off") + '</span></span></button>';
-        }).join("") + '</div>' + body + microNote() + flowEnd() + footer();
+        '<div class="row between" style="margin-top:18px"><h2 class="h3" style="margin:0">Market brief</h2>' + (cached ? '<span class="small muted">Today · ' + esc(ago(cached.at)) + '</span>' : "") + '</div>' +
+        '<p class="small muted" style="margin:4px 0 8px">Made on demand by your AI\'s web search for your goal' + (it ? " (" + esc(it.label) + ")" : "") + ', kind and saved hunts. Every line links to its source.</p>' +
+        '<div class="field" style="margin:0 0 8px"><label class="sr-only" for="daily-kind">Kind</label>' + kindSelectHTML((prefs.categories && prefs.categories[0]) || "", { id: "daily-kind", emptyLabel: "Any kind", ariaLabel: "Kind" }) + '</div>' +
+        '<div id="brief-body"></div>' +
+        '<h2 class="h3" style="margin-top:18px">Movers in your cards · 7 days</h2>' +
+        (mv.length ? '<div class="card">' + mv.map(function (r) { return '<div class="lrow daily-row mover-row"><div class="nm"><b>' + esc(r.card) + '</b><span>' + esc(r.grade) + ' · ' + r.wN + ' vs ' + r.bN + ' sales</span></div><span class="num ' + (r.pct >= 0 ? "pill-up" : "pill-down") + '">' + pct(r.pct) + '</span></div>'; }).join("") + '</div>'
+          : '<p class="small muted">No ranked movers yet. Watch cards or paste Ladder sales to see movers.</p>') + '<a class="btn btn-ghost btn-sm" href="#/lists/movers" style="margin-top:8px">Open Movers</a>' +
+        '<h2 class="h3" style="margin-top:18px">Gems in your hunts</h2>' +
+        (gm.length ? '<div class="card">' + gm.map(function (g) { return '<a class="lrow daily-row" href="' + esc(g.item.link || g.item.url) + '" target="_blank" rel="noopener noreferrer sponsored"><div class="nm"><b>' + esc(g.item.title) + '</b><span>' + Math.round(g.pctUnder) + '% under comps' + (g.weak ? " · weak: thin comps" : "") + '</span></div><span class="num">' + money(g.total, true) + '</span></a>'; }).join("") + '</div>'
+          : '<p class="small muted">No gems yet. Gems are hunt listings under your matched Ladder comps.</p>') + '<a class="btn btn-ghost btn-sm" href="#/lists/gems" style="margin-top:8px">Open Gems</a>' +
+        flowEnd({ sample: false }) + footReal();
       paintDailyHunts();
+      paintBrief(cached);
       var dk = document.getElementById("daily-kind");
-      if (dk) {
-        dk.onchange = function () {
-          prefs.categories = dk.value ? [dk.value] : [];
-          LS.set("daily", prefs); dailyScreen();
-        };
-      }
-      view.querySelectorAll("#daily-focus button").forEach(function (b) { b.onclick = function () { prefs.focus = b.dataset.f; LS.set("daily", prefs); dailyScreen(); }; });
-      view.querySelectorAll("[data-sec]").forEach(function (b) { b.onclick = function () { prefs.sections[b.dataset.sec] = !prefs.sections[b.dataset.sec]; LS.set("daily", prefs); dailyScreen(); }; });
+      if (dk) dk.onchange = function () { prefs.categories = dk.value ? [dk.value] : []; LS.set("daily", prefs); };
     });
+  }
+  function briefItemsHTML(b) {
+    return '<div class="card brief">' + b.items.map(function (x) {
+      return '<div class="brief-item"><b>' + esc(x.headline) + '</b>' + (x.detail ? '<p class="small" style="margin:4px 0">' + esc(x.detail) + '</p>' : "") +
+        '<a class="small brief-src" href="' + esc(x.url) + '" target="_blank" rel="noopener noreferrer nofollow">Source: ' + esc(x.source) + ' (' + esc(x.host) + ')</a></div>';
+    }).join("") + '</div><p class="small dim">From your AI\'s web search' + (b.verified ? ", links checked against its search results" : "") + '. ' + (b.dropped ? b.dropped + " unsourced line" + (b.dropped === 1 ? "" : "s") + " dropped. " : "") + 'News, not prices or advice.</p>';
+  }
+  function paintBrief(cached, msg) {
+    var el = document.getElementById("brief-body"); if (!el) return;
+    if (cached && cached.items && cached.items.length) { el.innerHTML = briefItemsHTML(cached) + '<button class="btn btn-ghost btn-xs" type="button" id="brief-go">Refresh brief</button>'; }
+    else if (!canLive()) { el.innerHTML = '<div class="card"><b>Connect your AI to make a brief.</b><p class="small muted" style="margin:6px 0 10px">It runs on your own AI with web search. Nothing here is sample.</p><a class="btn btn-gold btn-sm" href="#/connect/ai">Connect your AI</a></div>'; return; }
+    else el.innerHTML = (msg ? '<p class="small muted">' + esc(msg) + '</p>' : "") + '<button class="btn btn-gold btn-sm" type="button" id="brief-go">Make today\'s brief</button>';
+    var go = document.getElementById("brief-go");
+    if (go && canLive()) go.onclick = function () {
+      leaveGate(function () {
+        el.innerHTML = '<p class="small muted brief-wait">Your AI is searching…</p>';
+        var prefs = CH_DAILY.normalize(LS.get("daily", CH_DAILY.defaults)), it = intentNow();
+        CH_INSIGHTS.runBrief({ provider: CH_AI.normalize(state.ai).provider, key: aiSecret(), endpoint: aiEndpoint(), intent: it ? it.label : "", kinds: prefs.categories, hunts: savedHunts().map(function (h) { return h.query; }) }).then(function (r) {
+          if (!document.getElementById("brief-body")) return;
+          if (!r.ok) { paintBrief(null, CH_HUNT.failLine(r)); return; }
+          if (!r.items.length) { paintBrief(null, "Your AI found nothing it could source today." + (r.dropped ? " " + r.dropped + " unsourced line" + (r.dropped === 1 ? "" : "s") + " dropped." : "")); return; }
+          var b = { day: CH_INSIGHTS.dayKey(), intent: state.intent || "", at: Date.now(), items: r.items, dropped: r.dropped, verified: r.verified };
+          LS.set("brief", b); paintBrief(b);
+        });
+      });
+    };
   }
   function statusPill(s) {
     if (s.id === "cardladder") {
@@ -1946,7 +2096,7 @@ function chBoot() {
   }
 
   var BOOM = null, VOICE = null;
-  var ROUTES = { start: onboardScreen, intent: function (p) { onboardScreen(p, "intent"); }, connect: function (p) { connectScreen(p, true); }, hunt: huntScreen, scan: scanScreen, analyze: analyzeScreen, match: matchScreen, report: reportScreen, unpriced: unpricedScreen, markets: marketsScreen, lists: marketsScreen, deals: dealsScreen, more: moreScreen, connections: connectionsScreen, settings: connectionsScreen, tool: toolScreen, daily: dailyScreen };
+  var ROUTES = { start: onboardScreen, intent: function (p) { onboardScreen(p, "intent"); }, connect: function (p) { connectScreen(p, true); }, hunt: huntScreen, scan: scanScreen, analyze: analyzeScreen, match: matchScreen, report: reportScreen, unpriced: unpricedScreen, markets: marketsScreen, lists: marketsScreen, deals: dealsScreen, more: moreScreen, connections: connectionsScreen, settings: connectionsScreen, tool: toolScreen, daily: dailyScreen, plan: planScreen };
   BOOM = window.CH_BOOM ? window.CH_BOOM({ D: D, I: I, esc: esc, money: money, toast: toast, openSheet: openSheet, closeSheet: closeSheet, parseHash: parseHash }) : null;
   window.CH_BOOM_UI = BOOM;
   if (window.CH_LEDGER) ROUTES.ledger = window.CH_LEDGER({ view: view, D: D, I: I, esc: esc, money: money, pct: pct, toast: toast, footer: footer, openSheet: openSheet, closeSheet: closeSheet, isConnected: isConnected, gate: gate, parseHash: parseHash, go: go });
