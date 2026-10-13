@@ -805,3 +805,16 @@ select.input option{background:#111116;color:var(--text)}
 .plan-input textarea{flex:1}
 .plan-kv dd{word-break:break-word}
 .plan-draft{margin-top:10px}
+
+/* Connections screen */
+.conn-sec{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted,#8a8f98);margin:14px 2px 6px}
+.conn-item{padding:0;overflow:hidden}
+.conn-item .conn-row{display:flex;align-items:center;gap:10px;padding:12px;text-decoration:none;color:inherit}
+.conn-item .conn-row .tt{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.conn-item .conn-row .tt span{font-size:13px}
+.conn-body{padding:0 12px 12px}
+.conn-acts{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}
+.cpill{font-size:11px;font-weight:600;padding:3px 8px;border-radius:999px;white-space:nowrap;flex:none}
+.cpill.ok{background:rgba(46,204,113,.15);color:var(--up)}
+.cpill.warn{background:rgba(241,196,15,.15);color:#e6b800}
+.cpill.off{background:rgba(255,255,255,.06);color:var(--muted,#8a8f98)}

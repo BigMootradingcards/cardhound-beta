@@ -572,14 +572,24 @@ function chBoot() {
     });
   }
   var CONNECT_STEPS = ["ai", "ebay", "ladder", "sites"];
+  /* One Connections screen. Each service is one row: pill (Connected / Needs attention / Not connected) + last checked,
+     with Connect / Reconnect / Test / Remove in place. Setup (#/start/connect/<id>) walks these same rows in order. */
   function connStatus(id) {
-    if (id === "ai") { var tt = LS.get("ai_test", null); return canLive() ? { on: true, line: "Connected · key …" + CH_AI.maskKey(aiSecret()) + (tt && tt.key === CH_AI.maskKey(aiSecret()) ? (tt.ok ? " · tested " + ago(tt.at) : " · last test failed") : " · not tested") } : { on: false, line: LS.get("skip_ai", false) ? "Skipped" : "Not connected" }; }
-    if (id === "ebay") { var eh = LS.get("ebay_test", null); return !CFG.ebayWorkerUrl ? { on: false, line: "Not live yet · your AI searches eBay meanwhile" } : (eh && eh.ok ? { on: true, line: "Live eBay search · checked " + ago(eh.at) } : { on: false, line: eh ? "Live search unreachable · AI fallback" : "Not checked yet" }); }
-    if (id === "ladder") { var ph = ladderHookPhase(); if (ph === "none" && hookPendingRows().length) ph = "awaiting"; return ph === "none" ? { on: false, line: LS.get("skip_ladder", false) ? "Skipped" : "Not connected" } : { on: true, line: ph === "live" ? "Live comps" : "Connected · " + hookPendingRows().length + " sales pasted" }; }
-    var n = (state.huntSites && state.huntSites.length ? state.huntSites : CH_HUNT.DEFAULT_SITES).length;
-    return { on: !!(state.huntSites && state.huntSites.length), line: state.huntSites && state.huntSites.length ? n + " sites picked" : (LS.get("skip_sites", false) ? "Skipped · default sites" : "Default sites") };
+    var r;
+    if (id === "ai") { var tt = LS.get("ai_test", null), mk = canLive() ? CH_AI.maskKey(aiSecret()) : "", mine = tt && tt.key === mk;
+      r = canLive() ? { on: true, pill: mine && !tt.ok ? "warn" : "ok", line: "Connected · key …" + mk + (mine ? (tt.ok ? " · tested" : " · last test failed") : " · not tested"), at: mine ? tt.at : 0 } : { on: false, pill: "off", line: LS.get("skip_ai", false) ? "Skipped" : "Not connected" }; }
+    else if (id === "ebay") { var eh = LS.get("ebay_test", null);
+      r = !CFG.ebayWorkerUrl ? { on: false, pill: "off", line: "Not live yet · your AI searches eBay meanwhile" } : (eh && eh.ok ? { on: true, pill: "ok", line: "Live eBay search", at: eh.at } : { on: false, pill: eh ? "warn" : "off", line: eh ? "Live search unreachable · AI fallback" : "Not checked yet", at: eh ? eh.at : 0 }); }
+    else if (id === "ladder") { var ph = ladderHookPhase(), n = hookPendingRows().length, lt = LS.get("ladder_test", null); if (ph === "none" && n) ph = "awaiting";
+      if (ph === "none") r = { on: false, pill: "off", line: LS.get("skip_ladder", false) ? "Skipped" : "Not connected" };
+      else { var lc = ladderCheck(); r = { on: true, pill: n && !lc.withId ? "warn" : "ok", line: ph === "live" ? "Live comps" : "Connected · " + n + " sales pasted" + (n && !lc.withId ? " · none usable" : ""), at: lt ? lt.at : 0 }; } }
+    else { var picked = state.huntSites && state.huntSites.length;
+      r = { on: !!picked, pill: picked ? "ok" : "off", line: picked ? state.huntSites.length + " sites picked" : (LS.get("skip_sites", false) ? "Skipped · default sites" : "Default sites"), at: LS.get("sites_at", 0) }; }
+    return r;
   }
   var CONN_TITLE = { ai: "Your AI", ebay: "eBay live search", ladder: "Card Ladder", sites: "Hunt sites" };
+  var CONN_SECTION = { ai: "AI", ebay: "Marketplaces", ladder: "Comps", sites: "Hunt sites" };
+  var PILL = { ok: "Connected", warn: "Needs attention", off: "Not connected" };
   function ladderCheck() {
     var rows = hookPendingRows(), withId = rows.filter(function (r) { return r.set && r.number; }).length, dated = rows.map(function (r) { return CH_INSIGHTS.dayNum(r.date); }).filter(function (d) { return d != null; }).sort();
     var span = dated.length ? new Date(dated[0] * 864e5).toISOString().slice(0, 10) + " to " + new Date(dated[dated.length - 1] * 864e5).toISOString().slice(0, 10) : "no dates";
@@ -592,82 +602,78 @@ function chBoot() {
     var base = editing ? "#/connect" : "#/start/connect";
     function next() { if (editing) { location.hash = "#/connect"; return; } var i = CONNECT_STEPS.indexOf(step); location.hash = base + "/" + (CONNECT_STEPS[i + 1] || "done"); }
     function rerender() { connectScreen(p, editing); }
-    var idx = CONNECT_STEPS.indexOf(step);
+    var idx = CONNECT_STEPS.indexOf(step), open = idx > -1 ? step : "";
     var head = editing
-      ? '<a class="link-btn" href="' + (step === "hub" ? "#/more" : "#/connect") + '">' + I("left") + (step === "hub" ? "More" : "Connections") + '</a>'
+      ? '<a class="link-btn" href="#/more">' + I("left") + 'More</a>'
       : (idx > -1 ? '<div class="steps-dots" aria-label="Step ' + (idx + 1) + ' of ' + CONNECT_STEPS.length + '">' + CONNECT_STEPS.map(function (x, i) { return '<i class="' + (i <= idx ? "on" : "") + '"></i>'; }).join("") + '<span>Step ' + (idx + 1) + ' of ' + CONNECT_STEPS.length + '</span></div>' : "");
-    var st = connStatus(step === "hub" || step === "done" ? "ai" : step);
-    var done = '<div class="conn-done"><span class="tick on">' + I("check") + '</span><b>' + esc(st.line) + '</b></div>';
     var skipBtn = editing ? "" : '<button class="btn btn-ghost" id="c-skip" type="button">Skip</button>';
-    var html = "";
-    if (step === "ai") {
-      html = '<h1 class="h1">Connect your AI</h1><p class="lead">It hunts real listings for you and answers Ask. One key. It stays on this phone.</p>' +
-        '<section class="card conn-card">' + (st.on ? done : "") + aiKeyField("c-ai-key") +
-        '<details class="adv" id="ai-adv"' + (aiEndpoint() ? " open" : "") + '><summary>Endpoint (advanced)</summary><div class="field"><label for="ai-endpoint">Endpoint URL</label><input class="input" id="ai-endpoint" type="url" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://… (only if your key needs it)" value="' + esc(aiEndpoint()) + '"></div></details></section>' +
-        '<div class="cta-stack"><button class="btn btn-gold" id="c-go" type="button">' + (st.on ? "Save" : "Connect") + '</button>' + (st.on ? '<button class="btn btn-ghost" id="c-test" type="button">Test my AI key</button><p class="small muted" id="c-test-out" role="status" style="margin:0"></p><button class="btn btn-ghost" id="c-next" type="button">' + (editing ? "Done" : "Next") + '</button><button class="link-btn danger" id="c-off" type="button">Disconnect</button>' : skipBtn) + '</div>';
-    } else if (step === "ebay") {
-      html = '<h1 class="h1">eBay live search</h1><p class="lead">Official eBay search for live listings, auction end times and photos. Nothing to sign in to: CardHound runs it for you.</p>' +
-        '<section class="card conn-card"><div class="conn-done"><span class="tick' + (st.on ? " on" : "") + '">' + I("check") + '</span><b>' + esc(st.line) + '</b></div>' +
-        (CFG.ebayWorkerUrl ? '' : '<p class="small muted" style="margin:8px 0 0">Until it\'s live, your AI\'s web search covers eBay. No eBay password, ever.</p>') + '</section>' +
-        '<div class="cta-stack">' + (CFG.ebayWorkerUrl ? '<button class="btn btn-gold" id="c-etest" type="button">Test eBay search</button>' : "") + '<button class="btn btn-ghost" id="c-next" type="button">' + (editing ? "Done" : "Next") + '</button></div>';
-    } else if (step === "ladder") {
-      html = '<h1 class="h1">Card Ladder</h1><p class="lead"><b>Required for live sold comps.</b> Bring your own Card Ladder account: paste or import the sold history you export. No password. No scraping.</p>' +
-        '<section class="card conn-card">' + (st.on ? done + '<p class="small muted ladder-check" style="margin:8px 0 0">Paste check: ' + esc(ladderCheck().line) + (ladderCheck().withId < ladderCheck().n ? ". Rows without set and card number can't price a card." : ".") + '</p>' : '<p class="small muted" style="margin:0">Skip it and you can still hunt and confirm cards. Comps wait until it\'s connected.</p>') + '</section>' +
-        '<div class="cta-stack"><button class="btn btn-gold" id="c-ladder" type="button">' + (st.on ? "Add more sales" : "Connect Card Ladder") + '</button>' + (st.on ? '<button class="btn btn-ghost" id="c-next" type="button">' + (editing ? "Done" : "Next") + '</button><button class="link-btn danger" id="c-off" type="button">Disconnect</button>' : skipBtn) + '</div>';
-    } else if (step === "sites") {
-      var picked = (state.huntSites && state.huntSites.length ? state.huntSites : CH_HUNT.DEFAULT_SITES).slice();
-      html = '<h1 class="h1">Where do you hunt cards?</h1><p class="lead">If you look for cards on these sites, link them here so your AI hunt searches where you shop.</p>' +
-        '<div class="site-list">' + CH_HUNT.SITES.map(function (x) {
+    var nextBtn = editing ? "" : '<button class="btn btn-ghost" id="c-next" type="button">Next</button>';
+    function body(id) {
+      var st = connStatus(id);
+      if (id === "ai") return '<p class="small muted" style="margin:0 0 8px">It hunts real listings for you and answers Ask. One key. It stays on this phone.</p>' + aiKeyField("c-ai-key") +
+        '<details class="adv" id="ai-adv"' + (aiEndpoint() ? " open" : "") + '><summary>Endpoint (advanced)</summary><div class="field"><label for="ai-endpoint">Endpoint URL</label><input class="input" id="ai-endpoint" type="url" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://… (only if your key needs it)" value="' + esc(aiEndpoint()) + '"></div></details>' +
+        '<div class="conn-acts"><button class="btn btn-gold btn-sm" id="c-go" type="button">' + (st.on ? "Reconnect" : "Connect") + '</button>' + (st.on ? '<button class="btn btn-ghost btn-sm" id="c-test" type="button">Test my AI key</button><button class="link-btn danger" id="c-off" type="button">Remove</button>' : "") + '</div><p class="small muted" id="c-test-out" role="status" style="margin:6px 0 0"></p>';
+      if (id === "ebay") return '<p class="small muted" style="margin:0 0 8px">Official eBay search for live listings, auction end times and photos. Nothing to sign in to: CardHound runs it for you.' + (CFG.ebayWorkerUrl ? "" : " Until it's live, your AI's web search covers eBay. No eBay password, ever.") + '</p>' +
+        (CFG.ebayWorkerUrl ? '<div class="conn-acts"><button class="btn btn-gold btn-sm" id="c-etest" type="button">Test eBay search</button></div>' : "");
+      if (id === "ladder") return '<p class="small muted" style="margin:0 0 8px"><b>Required for live sold comps.</b> Bring your own Card Ladder account: paste or import the sold history you export. No password. No scraping.</p>' +
+        (st.on ? '<p class="small muted ladder-check" id="c-ltest-out" style="margin:0 0 8px">Paste check: ' + esc(ladderCheck().line) + (ladderCheck().withId < ladderCheck().n ? ". Rows without set and card number can't price a card." : ".") + '</p>' : '<p class="small muted" style="margin:0 0 8px">Skip it and you can still hunt and confirm cards. Comps wait until it\'s connected.</p>') +
+        '<div class="conn-acts"><button class="btn btn-gold btn-sm" id="c-ladder" type="button">' + (st.on ? "Add more sales" : "Connect Card Ladder") + '</button>' + (st.on ? '<button class="btn btn-ghost btn-sm" id="c-ltest" type="button">Test</button><button class="link-btn danger" id="c-off" type="button">Remove</button>' : "") + '</div>';
+      var picked = (state.huntSites && state.huntSites.length ? state.huntSites : CH_HUNT.DEFAULT_SITES);
+      return '<p class="small muted" style="margin:0 0 8px"><b>Where do you hunt cards?</b> Link the sites you shop so your AI hunt searches there.</p><div class="site-list">' + CH_HUNT.SITES.map(function (x) {
           var on = picked.indexOf(x.id) > -1;
           return '<button type="button" class="site' + (on ? " on" : "") + '" aria-pressed="' + on + '" data-site="' + x.id + '"><span class="srcmono">' + esc(x.mono) + '</span><span class="tt"><b>' + esc(x.name) + '</b><span>' + esc(x.line) + '</span></span><span class="tick" aria-hidden="true">' + I("check") + '</span></button>';
         }).join("") + '</div><p class="small muted">Public pages only. No passwords. Nothing behind a login is searched.</p>' +
-        '<div class="cta-stack"><button class="btn btn-gold" id="c-sites" type="button">' + (editing ? "Save" : "Next") + '</button>' + skipBtn + '</div>';
-      view.innerHTML = head + html;
-      view.querySelectorAll("[data-site]").forEach(function (b) {
-        b.onclick = function () { var id = b.dataset.site, k = picked.indexOf(id); if (k > -1) picked.splice(k, 1); else picked.push(id); b.classList.toggle("on", k < 0); b.setAttribute("aria-pressed", k < 0); };
-      });
-      document.getElementById("c-sites").onclick = function () { state.huntSites = picked; LS.set("huntSites", picked); LS.set("skip_sites", false); if (editing) toast("Saved."); next(); };
-      var sk0 = document.getElementById("c-skip"); if (sk0) sk0.onclick = function () { LS.set("skip_sites", true); next(); };
-      return;
-    } else {
-      /* hub (editing) or done (onboarding summary) */
-      html = (editing ? '<h1 class="h1">Add a connection</h1><p class="lead">Connect, reconnect, or disconnect anything. Keys stay on this phone.</p>'
-                      : '<div class="eyebrow">All set</div><h1 class="h1">Here\'s what\'s connected</h1><p class="lead">Change any of this later under More → Add a connection.</p>') +
-        '<div class="conn-hub">' + CONNECT_STEPS.map(function (id) {
-          var c = connStatus(id);
-          return '<a class="tool conn-row" href="#/connect/' + id + '"><span class="srcmono' + (c.on ? " on" : "") + '">' + (id === "ai" ? "AI" : id === "ladder" ? "CL" : I("search")) + '</span><span class="tt"><b>' + CONN_TITLE[id] + '</b><span class="' + (c.on ? "pill-up" : "") + '">' + esc(c.line) + '</span></span>' + I("right") + '</a>';
-        }).join("") + '</div>' +
-        (editing ? "" : '<div class="cta-stack"><button class="btn btn-gold" id="c-home" type="button">Go to Home</button></div>');
-      view.innerHTML = head + html;
-      var hm = document.getElementById("c-home"); if (hm) hm.onclick = function () { LS.set("onboarded", true); location.hash = "#/scan"; };
-      return;
+        '<div class="conn-acts"><button class="btn btn-gold btn-sm" id="c-sites" type="button">' + (editing ? "Save" : "Save and next") + '</button>' + (st.on ? '<button class="link-btn danger" id="c-off" type="button">Remove</button>' : "") + '</div>';
     }
-    view.innerHTML = head + html;
+    function row(id) {
+      var c = connStatus(id), isOpen = id === open;
+      return '<div class="conn-sec">' + esc(CONN_SECTION[id]) + '</div><div class="card conn-item' + (isOpen ? " open" : "") + '">' +
+        '<a class="conn-row" href="' + (isOpen ? base + (editing ? "" : "/" + id) : base + "/" + id) + '" aria-expanded="' + isOpen + '"><span class="srcmono' + (c.on ? " on" : "") + '">' + (id === "ai" ? "AI" : id === "ladder" ? "CL" : id === "ebay" ? "eB" : I("search")) + '</span>' +
+        '<span class="tt"><b>' + CONN_TITLE[id] + '</b><span>' + esc(c.line === "Not connected" ? "Tap to connect" : c.line) + '</span><span class="small muted">' + (c.at ? "Checked " + ago(c.at) : "Not checked") + '</span></span>' +
+        '<span class="cpill ' + c.pill + '">' + PILL[c.pill] + '</span></a>' + (isOpen ? '<div class="conn-body">' + body(id) + '</div>' : "") + '</div>';
+    }
+    var top = editing ? '<h1 class="h1">Connections</h1><p class="lead">Tap a row to connect, test, or remove. Keys stay on this phone.</p>'
+      : step === "done" ? '<div class="eyebrow">All set</div><h1 class="h1">Here\'s what\'s connected</h1><p class="lead">Change any of this later under More → Connections.</p>'
+      : '<h1 class="h1">Connect your tools</h1><p class="lead">Four rows, one at a time. Skip anything; come back later.</p>';
+    var foot = !editing ? (step === "done" ? '<div class="cta-stack"><button class="btn btn-gold" id="c-home" type="button">Go to Home</button><a class="btn btn-ghost" href="#/connect" id="c-manage">Manage connections</a></div>'
+      : '<div class="cta-stack">' + (connStatus(step).on || step === "ebay" ? nextBtn : "") + (step === "ebay" ? "" : skipBtn) + '</div>') : "";
+    view.innerHTML = head + top + '<div class="conn-hub">' + CONNECT_STEPS.map(row).join("") + '</div>' + foot;
+    var hm = document.getElementById("c-home"); if (hm) hm.onclick = function () { LS.set("onboarded", true); location.hash = "#/scan"; };
+    var mg = document.getElementById("c-manage"); if (mg) mg.onclick = function () { LS.set("onboarded", true); };
     var sk = document.getElementById("c-skip"); if (sk) sk.onclick = function () { LS.set("skip_" + step, true); next(); };
     var nx = document.getElementById("c-next"); if (nx) nx.onclick = next;
-    if (step === "ai") {
+    if (open === "ai") {
       document.getElementById("c-go").onclick = function () {
         if (!commitAi(document.getElementById("c-ai-key").value, document.getElementById("ai-endpoint").value, true)) return;
-        LS.set("skip_ai", false); toast("Your AI is connected on this phone."); rerender();
+        LS.set("skip_ai", false); LS.set("ai_test", null); toast("Your AI is connected on this phone."); rerender();
       };
-      var off = document.getElementById("c-off"); if (off) off.onclick = function () { disconnectAi(); LS.set("ai_test", null); toast("Your AI is disconnected."); rerender(); };
+      var off = document.getElementById("c-off"); if (off) off.onclick = function () { disconnectAi(); LS.set("ai_test", null); toast("Your AI is removed from this phone."); rerender(); };
       var tb = document.getElementById("c-test");
       if (tb) tb.onclick = function () {
         var out = document.getElementById("c-test-out"); out.textContent = "Testing with a tiny request…"; tb.disabled = true;
         var prov = CH_AI.normalize(state.ai).provider, req = CH_HUNT.buildPlainRequest(prov, aiSecret(), "Reply with the single word OK.", aiEndpoint());
         if (!req) { out.textContent = "Your AI isn't set up yet."; tb.disabled = false; return; }
+        var msg = "";
         fetch(req.url, req.init).then(function (res) { return res.json().catch(function () { return {}; }).then(function (j) { return { status: res.status, json: j }; }); }).then(function (r) {
           var ok = r.status >= 200 && r.status < 300 && !!CH_HUNT.readReply(prov, r.json).text;
           LS.set("ai_test", { ok: ok, at: Date.now(), key: CH_AI.maskKey(aiSecret()) });
-          out.textContent = ok ? "It works. Your AI answered." : (r.status === 401 || r.status === 403 ? "Your AI key didn't work. Check it and save again." : r.status === 429 ? "Your AI account is out of credit or rate-limited." : "Your AI answered with an error (" + r.status + ").");
-        }, function () { LS.set("ai_test", { ok: false, at: Date.now(), key: CH_AI.maskKey(aiSecret()) }); out.textContent = "Couldn't reach your AI. Check your connection or endpoint."; }).then(function () { tb.disabled = false; });
+          msg = ok ? "It works. Your AI answered." : (r.status === 401 || r.status === 403 ? "Your AI key didn't work. Check it and reconnect." : r.status === 429 ? "Your AI account is out of credit or rate-limited." : "Your AI answered with an error (" + r.status + ").");
+        }, function () { LS.set("ai_test", { ok: false, at: Date.now(), key: CH_AI.maskKey(aiSecret()) }); msg = "Couldn't reach your AI. Check your connection or endpoint."; }).then(function () { rerender(); var o = document.getElementById("c-test-out"); if (o) o.textContent = msg; });
       };
-    } else if (step === "ebay") {
+    } else if (open === "ebay") {
       var et = document.getElementById("c-etest");
       if (et) et.onclick = function () { et.disabled = true; CH_HUNT._resetHealth(); CH_HUNT.workerHealthy(CFG.ebayWorkerUrl, fetch.bind(window)).then(function (ok) { LS.set("ebay_test", { ok: ok, at: Date.now() }); toast(ok ? "eBay live search works." : "eBay live search didn't answer. Hunts fall back to your AI."); rerender(); }); };
-    } else {
+    } else if (open === "ladder") {
       document.getElementById("c-ladder").onclick = function () { LS.set("skip_ladder", false); connectSheet("cardladder"); state.connDirty = true; };
-      var off2 = document.getElementById("c-off"); if (off2) off2.onclick = function () { state.ladderHook = defaultLadderHook(); state.liveSales = null; saveLadderHook(); toast("Card Ladder disconnected. Pasted sales removed from this phone."); rerender(); };
+      var lt = document.getElementById("c-ltest"); if (lt) lt.onclick = function () { LS.set("ladder_test", { at: Date.now() }); rerender(); toast("Paste check: " + ladderCheck().withId + " of " + ladderCheck().n + " sales usable."); };
+      var off2 = document.getElementById("c-off"); if (off2) off2.onclick = function () { state.ladderHook = defaultLadderHook(); state.liveSales = null; saveLadderHook(); LS.set("ladder_test", null); toast("Card Ladder removed. Pasted sales deleted from this phone."); rerender(); };
+    } else if (open === "sites") {
+      var picked = (state.huntSites && state.huntSites.length ? state.huntSites : CH_HUNT.DEFAULT_SITES).slice();
+      view.querySelectorAll("[data-site]").forEach(function (b) {
+        b.onclick = function () { var id = b.dataset.site, k = picked.indexOf(id); if (k > -1) picked.splice(k, 1); else picked.push(id); b.classList.toggle("on", k < 0); b.setAttribute("aria-pressed", k < 0); };
+      });
+      document.getElementById("c-sites").onclick = function () { state.huntSites = picked; LS.set("huntSites", picked); LS.set("skip_sites", false); LS.set("sites_at", Date.now()); if (editing) { toast("Saved."); rerender(); } else next(); };
+      var off3 = document.getElementById("c-off"); if (off3) off3.onclick = function () { state.huntSites = []; LS.set("huntSites", []); LS.set("sites_at", 0); toast("Back to default sites."); rerender(); };
     }
   }
 
@@ -1928,7 +1934,7 @@ function chBoot() {
   }
   function moreScreen() {
     var itn = intentNow();
-    var yours = [["#/intent", "target", "Your intention", itn ? itn.label + " · change" : "Flip, hold, grade, or other"], ["#/connect", "plug", "Add a connection", "Your AI, Card Ladder, hunt sites"], ["#/daily", "report", "Daily report", "Saved hunts, a sourced brief, your movers"], ["#/ask", "mic", "Ask", "Hunts and questions. Not on Home."], ["#/ledger", "wallet", "Portfolio", "Buys, cost, and value on this phone"], ["#/deals/watch", "eye", "Watchlist", "Cards and listings you are watching"], ["#/deals/snipes", "target", "Auction Watch", "Reminders. You set the max."], ["#/deals", "deals", "For sale", "Asking prices versus sample comps"], ["#/lists/gems", "gem", "Gems", "Hunt listings under your comps"]];
+    var yours = [["#/intent", "target", "Your intention", itn ? itn.label + " · change" : "Flip, hold, grade, or other"], ["#/connect", "plug", "Connections", "Your AI, eBay, Card Ladder, hunt sites"], ["#/daily", "report", "Daily report", "Saved hunts, a sourced brief, your movers"], ["#/ask", "mic", "Ask", "Hunts and questions. Not on Home."], ["#/ledger", "wallet", "Portfolio", "Buys, cost, and value on this phone"], ["#/deals/watch", "eye", "Watchlist", "Cards and listings you are watching"], ["#/deals/snipes", "target", "Auction Watch", "Reminders. You set the max."], ["#/deals", "deals", "For sale", "Asking prices versus sample comps"], ["#/lists/gems", "gem", "Gems", "Hunt listings under your comps"]];
     var tools = [["#/lists/movers", "markets", "Lists", "Movers and gems from your own cards"], ["#/tool/alerts", "bell", "Alerts", "Under-comp and new-high alerts"], ["#/settings", "sliders", "Settings", "Card Ladder, AI, import, eBay, PSA"], ["#/tool/fees", "calc", "Fee and net", "What you keep after eBay fees"], ["#/tool/roi", "layers", "Grading ROI", "Raw versus graded after fees"], ["#/tool/variant", "list", "Exact variant check", "Parallel, refractor, reprint, slab"], ["#/tool/offer", "handshake", "Best Offer helper", "Suggested offer and walk-away"]];
     if (window.CH_APP && window.CH_APP.moreItemsTop && window.CH_APP.moreItemsTop.length) {
       yours = window.CH_APP.moreItemsTop.map(function (t) { return ["#/" + t[0], t[1], t[2], t[3]]; }).concat(yours);
@@ -2041,7 +2047,7 @@ function chBoot() {
     var aiWho = aiNow.provider ? CH_AI.byId(aiNow.provider) : null;
     view.innerHTML = '<div class="eyebrow">' + (settings ? "Settings" : "Connections") + '</div><h1 class="h1" style="font-size:28px">' + (settings ? "Settings" : "Bring your own accounts") + '</h1>' +
       '<p class="lead">BYO Card Ladder for sold comps, BYO AI for deal calls. Never a password.</p>' +
-      '<a class="tool" href="#/connect"><span class="tic">' + I("plug") + '</span><span class="tt"><b>Add a connection</b><span>Your AI, Card Ladder, hunt sites · status and disconnect</span></span>' + I("right") + '</a>' +
+      '<a class="tool" href="#/connect"><span class="tic">' + I("plug") + '</span><span class="tt"><b>Connections</b><span>Your AI, eBay, Card Ladder, hunt sites · status, test, remove</span></span>' + I("right") + '</a>' +
       '<button type="button" class="tool" id="ai-settings"><span class="srcmono' + (aiWho ? " on" : "") + '">AI</span><span class="tt"><b>Your AI</b><span>' + esc(aiWho ? aiWho.name + (aiSecret() ? " · …" + CH_AI.maskKey(aiSecret()) : " · add your key") : CH_AI.job.aiShort) + '</span></span></button>' +
       groups.map(function (g) {
         return '<div class="group-h"><h3 class="h3">' + g[0] + '</h3></div>' + g[1].map(function (id) {

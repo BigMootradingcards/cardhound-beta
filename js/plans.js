@@ -75,7 +75,7 @@
   }
   /* Shape hunt results into the deliverable. gemsFn(items) → [{item, pctUnder, comp, n, weak}] (from your Ladder comps). */
   function deliver(p, items, gemsFn) {
-    items = (items || []).slice();
+    items = fitPlan(p, items);
     var rows = [], note = "";
     if (p.deliverable === "top5_under_comp") {
       var g = gemsFn ? gemsFn(items) : [];
@@ -91,10 +91,37 @@
       rows = items.slice(0, 5).map(function (it) { return { item: it, line: it.why || "" }; });
       if (!rows.length) note = "No real listings matched this time.";
     }
+    rows.forEach(function (r) { if (r.item && r.item.flag) r.line = (r.line ? r.line + " - " : "") + "Check: " + r.item.flag; });
     return { rows: rows, note: note, count: items.length };
   }
+  /* Each hunt result must agree with the plan's sets / grades / players: conflict → dropped, unreadable → flagged. */
+  function fitPlan(p, items) {
+    var CM = (typeof CH_MATCH !== "undefined" && CH_MATCH) || globalThis.CH_MATCH;
+    var out = [];
+    (items || []).forEach(function (it) {
+      if (!it) return;
+      var t = String(it.title || ""), low = t.toLowerCase(), flags = [];
+      if ((p.players || []).length && !p.players.some(function (n) { var last = String(n).toLowerCase().trim().split(/\s+/).pop(); return last && low.indexOf(last) > -1; })) return;
+      if (CM) {
+        var g = CM.parse(t);
+        if ((p.sets || []).length) {
+          var sets = p.sets.map(function (x) { var q = CM.parse(" " + x + " "); return q.set ? q.set + "|" + q.parallel + "|" + q.insert : null; });
+          if (!g.set) flags.push("set not stated");
+          else if (!sets.some(function (k) { if (!k) return true; var a = k.split("|"); return a[0] === g.set && (a[1] === "base" || a[1] === g.parallel) && (!a[2] || a[2] === g.insert); })) return;
+        }
+        if ((p.grades || []).length) {
+          var want = p.grades.map(function (x) { var q = CM.parse(" " + x + " "); return q.grader === "raw" ? "raw" : q.grader + " " + q.grade; });
+          var have = g.grader === "raw" ? "raw" : g.grader + " " + g.grade;
+          if (g.grader === "?") flags.push("grade not readable");
+          else if (want.indexOf(have) < 0) return;
+        }
+      }
+      out.push(flags.length ? Object.assign({}, it, { flag: flags.join(", ") }) : it);
+    });
+    return out;
+  }
   function isStale(p, now) { var ms = STALE_MS[p.cadence] || Infinity; return ms !== Infinity && (now || Date.now()) - (p.lastRun || 0) > ms; }
-  var api = { CADENCE: CADENCE, DELIVER: DELIVER, blank: blank, validatePlan: validatePlan, planPrompt: planPrompt, interpretReply: interpretReply, ask: ask, toHunt: toHunt, deliver: deliver, isStale: isStale };
+  var api = { CADENCE: CADENCE, DELIVER: DELIVER, blank: blank, validatePlan: validatePlan, planPrompt: planPrompt, interpretReply: interpretReply, ask: ask, toHunt: toHunt, deliver: deliver, fitPlan: fitPlan, isStale: isStale };
   root.CH_PLANS = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(typeof window !== "undefined" ? window : globalThis);

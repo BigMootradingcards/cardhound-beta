@@ -104,6 +104,8 @@
       if (!it || !(Number(it.price) > 0) || seen[it.id || it.url]) return; seen[it.id || it.url] = true;
       var id = identityFor(it.title, { year: it.year, set: it.set, number: it.number, player: it.player, variant: it.variant });
       if (!id) return;
+      var CM = (typeof CH_MATCH !== "undefined" && CH_MATCH) || globalThis.CH_MATCH;
+      if (CM && it.title && CM.compare(CM.fromCard(id), CM.parse(it.title), { ignoreGrade: true }).verdict !== "match") return; /* title disagrees with its identity: unpriced */
       checked++;
       var fl = flagOneOffs(compsFor(id, pending, it.grade || "Raw"));
       var clean = fl.filter(function (s) { return !s.oneOff; }).slice(0, 10);
@@ -125,7 +127,10 @@
       return { year: id.year || it.year, set: id.set || it.set, number: id.number || it.number, variant: id.variant || it.variant || "Base", date: "", price: it.price, item: it };
     });
     var want = Object.assign({}, card, { variant: card.variant || "Base" });
-    return SG.orderSales(sales, want).map(function (s) { return s.item; });
+    var CM = (typeof CH_MATCH !== "undefined" && CH_MATCH) || globalThis.CH_MATCH, wantM = CM && CM.fromCard(want);
+    return SG.orderSales(sales, want).map(function (s) { return s.item; }).filter(function (it) {
+      return !CM || CM.compare(wantM, CM.parse(it.title || ""), { ignoreGrade: true }).verdict === "match";
+    });
   }
 
   /* REPORT data for a confirmed card. */
