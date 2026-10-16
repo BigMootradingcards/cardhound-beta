@@ -378,7 +378,7 @@ function chBoot() {
         '<button class="btn btn-gold" id="hunt-go" type="button">' + I("search") + 'Hunt</button>' +
         '<div class="ex-row" aria-label="Examples">' + ex.map(function (e) { return '<button type="button" class="ex-chip" data-ex="' + esc(e) + '">' + esc(e) + '</button>'; }).join("") + '</div>' +
       '</section>' +
-      aiBannerHTML() + last + '<div id="plans-home"></div>' +
+      goalCardHTML() + aiBannerHTML() + last + '<div id="plans-home"></div>' +
       '<details class="photo-more"><summary>' + I("camera") + ' Check a card by photo</summary>' +
         '<section class="home-pane" aria-label="What\'s this card?">' +
           '<div class="scan-frame">' + frame + '</div>' +
@@ -400,6 +400,7 @@ function chBoot() {
     }
     var a = document.getElementById("go-analyze");
     if (a) a.onclick = function () { state.check = null; location.hash = "#/analyze"; };
+    wireGoalCard();
     var box = document.getElementById("hunt-q");
     var fa = LS.get("firstAsk", ""); if (fa && !box.value) { box.value = fa; LS.set("firstAsk", ""); }
     document.getElementById("hunt-go").onclick = function () { submitHunt(box.value); };
@@ -410,6 +411,27 @@ function chBoot() {
 
   /* HUNT — the user's AI searches live listings; refine with chips. */
   function saveHunt() { LS.set("hunt", state.hunt); }
+  /* Goal-driven start: the broad welcome pick becomes a hunt the AI plans itself (intent guide + playbook tools).
+     Optional narrowing (who/what, budget) — never a prefilled player query. */
+  function goalCardHTML() {
+    var g = starterById(LS.get("goal", ""));
+    if (!g || !LS.get("goalPending", false)) return "";
+    return '<section class="card goal-card" aria-label="Your goal"><div class="eyebrow">Your goal</div><h2 class="h1 wl-ask" style="margin:4px 0 6px">' + esc(g.label) + '</h2>' +
+      '<p class="small muted" style="margin:0 0 10px">Want to narrow it? Optional.</p>' +
+      '<div class="field"><label for="g-who">Players, sport or kind</label><input class="input" id="g-who" maxlength="120" autocomplete="off" placeholder="Any"></div>' +
+      '<div class="field"><label for="g-max">Max price ($)</label><input class="input" id="g-max" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="Any"></div>' +
+      '<div class="conn-acts"><button class="btn btn-gold" id="g-go" type="button">' + I("search") + 'Start my hunt</button><button class="link-btn" id="g-x" type="button">Not now</button></div></section>';
+  }
+  function wireGoalCard() {
+    var go = document.getElementById("g-go"); if (!go) return;
+    var g = starterById(LS.get("goal", ""));
+    go.onclick = function () {
+      var who = CH_HUNT.cleanText(document.getElementById("g-who").value, 120), mx = String(document.getElementById("g-max").value || "").replace(/[^0-9]/g, "");
+      LS.set("goalPending", false);
+      submitHunt(g.ask + (who ? " Focus: " + who + "." : " Pick what fits my goal.") + (mx ? " Max $" + mx + " each." : ""));
+    };
+    document.getElementById("g-x").onclick = function () { LS.set("goalPending", false); var c = view.querySelector(".goal-card"); if (c) c.remove(); };
+  }
   function submitHunt(q) {
     q = CH_HUNT.cleanText(q, 300);
     if (!q) { toast("Say what you want."); return; }
@@ -516,17 +538,49 @@ function chBoot() {
     var sv = document.getElementById("hunt-save"); if (sv) sv.onclick = saveCurrentHunt;
     var r3 = document.getElementById("hunt-ai"); if (r3) r3.onclick = function () { aiSheet({ then: runHunt, title: "Connect your AI to hunt" }); };
   }
+  /* Follow-up refine chips that fit THIS search (local rules on the query text; nothing invented as fact). */
+  function refineSuggestions(q) {
+    var t = String(q || "").toLowerCase(), out = [];
+    var m = t.match(/\$\s?(\d{2,6})/), cap = m ? +m[1] : 0;
+    if (cap) { out.push("Under $" + Math.max(10, Math.round(cap * 0.6 / 5) * 5)); }
+    else out.push("Under $50", "Under $100", "Under $250");
+    var graded = /psa|bgs|sgc|cgc|graded|slab/.test(t), raw = /\braw\b/.test(t);
+    if (!graded && !raw) out.push("Raw only", "Graded only");
+    if (/psa|bgs|sgc|cgc/.test(t) && !/\b10\b/.test(t)) out.push("PSA 10 only");
+    if (!graded && !/grad/.test(t)) out.push("Worth grading");
+    if (!/auction|ending/.test(t)) out.push("Auctions ending soon");
+    if (/chrome|prizm|optic|select|mosaic|topps|bowman/.test(t) && !/refractor|silver|parallel|base/.test(t)) out.push("Base only", "Parallels only");
+    if (/rookie|\brc\b/.test(t) && !/(19|20)\d\d/.test(t)) out.push("True rookie year only");
+    if (/pok[eé]mon|charizard|pikachu/.test(t) && !/japanese/.test(t)) out.push("English only");
+    out.push("Best value");
+    return out.slice(0, 7);
+  }
   function huntScreen() {
     var h = state.hunt;
     if (!h || !h.query) { location.hash = "#/scan"; return; }
     view.innerHTML = '<a class="link-btn" href="#/scan">' + I("left") + 'New hunt</a>' +
       '<h1 class="h2 hunt-q">' + esc(h.query) + '</h1>' +
       '<div class="rchips" id="hunt-chips"></div>' +
+      '<div class="sug-chips" id="hunt-sug" aria-label="Quick refine"></div>' +
       '<div class="hunt-log" id="hunt-log" aria-live="polite"></div>' +
       '<form class="refine" id="refine"><input class="input" id="refine-q" placeholder="Refine: only PSA 9+, under $200, no Moss" autocomplete="off" aria-label="Refine the hunt"><button class="btn btn-gold btn-sm" type="submit">Refine</button></form>' +
       '<div id="hunt-body" aria-live="polite"></div>' +
       '<div id="hunt-open" class="hunt-open"></div>' +
       '<aside class="flow-end"><p>Listings come from your AI\'s live web search of public pages. Price and availability can change. Check the listing before you buy. CardHound never buys or bids for you.</p><p>Not financial advice.</p>' + (/^\d{10}$/.test(String(CFG.epnCampaignId || "")) ? '<p>eBay links may earn CardHound a commission. Your price stays the same.</p>' : "") + '</aside>';
+    function addRefine(t) {
+      if ((h.chips || []).length >= 6) { toast("Up to 6 refinements. Remove one first."); return; }
+      var c = CH_HUNT.parseRefine(t);
+      h.chips.push(c); h.log.push({ who: "you", text: t }); h.chipsDirty = false;
+      saveHunt(); paintHunt(); paintSug(); runHunt();
+    }
+    function paintSug() {
+      var el = document.getElementById("hunt-sug"); if (!el) return;
+      var used = (h.chips || []).map(function (c) { return String(c.text).toLowerCase(); });
+      var sg = refineSuggestions(h.query).filter(function (x) { return used.indexOf(x.toLowerCase()) < 0; });
+      el.innerHTML = sg.map(function (x) { return '<button type="button" class="ex-chip" data-sug="' + esc(x) + '">' + esc(x) + '</button>'; }).join("");
+      el.querySelectorAll("[data-sug]").forEach(function (b) { b.onclick = function () { addRefine(b.dataset.sug); }; });
+    }
+    paintSug();
     document.getElementById("refine").onsubmit = function (e) {
       e.preventDefault();
       var inp = document.getElementById("refine-q"), t = CH_HUNT.cleanText(inp.value, 80); if (!t) return;
@@ -569,12 +623,18 @@ function chBoot() {
   /* ONBOARDING — warm welcome: what CardHound does, then "How can I help you today?" (starter taps or free text).
      The pick sets the goal (state.intent) that aims hunts/alerts; editable under More. Then the guided "Connect here" flow. */
   var STARTERS = [
-    { intent: "grade", label: "Cheap Wemby rookies with a high gem rate", sub: "Grade" },
-    { intent: "grade", label: "Raw Caitlin Clark rookies under $50 to grade", sub: "Grade" },
-    { intent: "flip", label: "Underpriced Charizard PSA 9s on eBay", sub: "Deal" },
-    { intent: "flip", label: "Ohtani auctions ending tonight below comps", sub: "Deal" },
-    { intent: "hold", label: "Clean Mahomes rookies for my collection", sub: "Collect" }
+    { id: "flip", intent: "flip", label: "Find deals to flip", sub: "Buys under sold prices",
+      ask: "Find me cards to flip: listings priced clearly under recent sold prices for the exact same card, with margin left after fees." },
+    { id: "grade", intent: "grade", label: "Find cards worth grading", sub: "Raw cards with upside",
+      ask: "Find raw cards worth grading: clean centering, corners and surface in the photos, at a price that leaves room after grading costs." },
+    { id: "hold", intent: "hold", label: "Build my collection", sub: "Cards you'll love, fair prices",
+      ask: "Help me build my collection: cards with strong eye appeal at a fair price." },
+    { id: "auctions", intent: "flip", label: "Watch auctions for steals", sub: "Ending soon, below comps",
+      ask: "Find auctions ending soon that are currently bid below recent sold prices for the exact same card." },
+    { id: "other", intent: "other", label: "Just looking around", sub: "Show me what you can do",
+      ask: "Show me a few interesting, fairly priced cards right now." }
   ];
+  function starterById(id) { for (var i = 0; i < STARTERS.length; i++) if (STARTERS[i].id === id) return STARTERS[i]; return null; }
   function guessIntent(t) {
     t = String(t || "").toLowerCase();
     if (/flip|profit|resell|deal|under comp|cheap/.test(t)) return "flip";
@@ -586,18 +646,19 @@ function chBoot() {
     var sub = (p && p.sub) || "intent";
     if (!mode && sub === "connect") { connectScreen(p, false); return; }
     var editing = mode === "intent";
-    var does = [["search", "Finds the card", "\u201cCheap Wemby rookies\u201d"], ["deals", "Checks the price", "Ask vs. sold comps"], ["gem", "Says what to do", "Buy, hold, sell or grade"], ["eye", "Watches auctions", "Auction Watch pings you"]];
+    var does = [["search", "Finds cards for you", "Tell it your goal"], ["deals", "Checks the price", "Against sold comps"], ["gem", "Says what to do", "Buy, hold, sell or grade"], ["eye", "Watches auctions", "Auction Watch pings you"]];
     view.innerHTML = (editing ? '<a class="link-btn" href="#/more">' + I("left") + 'More</a>' :
       '<section class="welcome"><div class="wl-hound" aria-hidden="true"><img src="img/hound.webp" alt="" width="120" height="110"></div>' +
       '<h1 class="h1 wl-h">Hi, I\'m CardHound.</h1><p class="lead">I hunt cards so you don\'t have to.</p>' +
       '<ul class="wl-does">' + does.map(function (d) { return '<li><span class="tic">' + I(d[0]) + '</span><span><b>' + d[1] + '</b><span>' + d[2] + '</span></span></li>'; }).join("") + '</ul></section>') +
       '<h2 class="h1 wl-ask">' + (editing ? "How can I help you?" : "How can I help you today?") + '</h2>' +
-      '<div class="intent-list" aria-label="Tap an example">' + STARTERS.map(function (x) {
-        var on = state.intent === x.intent;
-        return '<button type="button" class="intent ask" data-intent="' + x.intent + '" data-ask="' + esc(x.label) + '"><b>' + esc(x.label) + '</b><span>' + esc(x.sub) + '</span></button>';
-      }).join("") + '</div>' +
-      '<div class="wl-free"><label class="small muted" for="wl-q">Or tell me in your words</label><textarea class="input" id="wl-q" rows="2" maxlength="300" placeholder="e.g. Wemby Prizm Silver rookie, raw, cheap"></textarea>' +
+      '<div class="wl-free"><label class="sr-only" for="wl-q">Tell me what you\'re after</label><textarea class="input wl-box" id="wl-q" rows="3" maxlength="300" placeholder="Tell me what you\'re after, in your own words"></textarea>' +
       '<button class="btn btn-gold" id="wl-go" type="button">' + (editing ? "Save" : "Let\'s go") + '</button></div>' +
+      '<p class="small muted wl-or">Or pick a goal</p>' +
+      '<div class="wl-goals" aria-label="Pick a goal">' + STARTERS.map(function (x) {
+        var on = LS.get("goal", "") === x.id;
+        return '<button type="button" class="ex-chip wl-goal' + (on ? " on" : "") + '" data-intent="' + x.intent + '" data-goal="' + x.id + '">' + esc(x.label) + '</button>';
+      }).join("") + '</div>' +
       '<p class="small dim" style="margin-top:10px">Change this anytime under More.</p>';
     function choose(id, text) {
       var x = CH_HUNT.intentById(id) || CH_HUNT.intentById("other");
@@ -606,11 +667,11 @@ function chBoot() {
       if (!LS.get("alertsTouched", false)) { state.alerts = { threshold: x.alertPct, on: true }; LS.set("alerts", state.alerts); }
       if (editing) { toast("Saved: " + x.label); location.hash = "#/more"; } else location.hash = "#/start/connect/ai";
     }
-    view.querySelectorAll("[data-intent]").forEach(function (b) { b.onclick = function () { choose(b.dataset.intent, b.dataset.ask); }; });
+    view.querySelectorAll("[data-intent]").forEach(function (b) { b.onclick = function () { LS.set("goal", b.dataset.goal); LS.set("goalPending", true); choose(b.dataset.intent); }; });
     document.getElementById("wl-go").onclick = function () {
       var t = document.getElementById("wl-q").value.trim();
       if (!t) { document.getElementById("wl-q").focus(); toast("Tap a choice or type what you need."); return; }
-      choose(guessIntent(t), t);
+      LS.set("goal", ""); LS.set("goalPending", false); choose(guessIntent(t), t);
     };
   }
   var CONNECT_STEPS = ["ai", "ebay", "ladder", "sites"];
