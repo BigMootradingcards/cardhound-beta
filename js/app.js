@@ -401,6 +401,7 @@ function chBoot() {
     var a = document.getElementById("go-analyze");
     if (a) a.onclick = function () { state.check = null; location.hash = "#/analyze"; };
     var box = document.getElementById("hunt-q");
+    var fa = LS.get("firstAsk", ""); if (fa && !box.value) { box.value = fa; LS.set("firstAsk", ""); }
     document.getElementById("hunt-go").onclick = function () { submitHunt(box.value); };
     box.addEventListener("keydown", function (e) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitHunt(box.value); } });
     view.querySelectorAll("[data-ex]").forEach(function (b) { b.onclick = function () { box.value = b.dataset.ex; box.focus(); }; });
@@ -496,7 +497,7 @@ function chBoot() {
     document.getElementById("hunt-log").innerHTML = (h.log || []).slice(-2).map(function (m) { return '<p class="msg ' + (m.who === "you" ? "me" : "ai") + (m.bad ? " bad" : "") + '">' + esc(m.text) + '</p>'; }).join("");
     var body = "";
     if (h.status === "ranking") body = '<div class="hunt-wait small"><span class="spin" aria-hidden="true"></span><b>Live eBay listings in. Your AI is ranking them…</b></div>' + items.map(huntResultHTML).join("");
-    else if (h.status === "pending") body = '<div class="hunt-wait"><span class="spin" aria-hidden="true"></span><b>Your AI is searching live listings…</b><span class="small muted">Keep this screen open.</span></div>';
+    else if (h.status === "pending") body = '<div class="hunt-wait">' + hound("hunt") + '<span class="small muted">Keep this screen open.</span></div>';
     else if (h.status === "needai") body = '<div class="card"><b>Connect your AI to hunt.</b><p class="small muted" style="margin:6px 0 10px">One step. Your key stays on this phone.</p><button class="btn btn-gold" id="hunt-ai" type="button">Connect AI</button></div>';
     else if (h.status === "held") body = '<div class="card"><b>Kept on this phone.</b><p class="small muted" style="margin:6px 0 10px">Nothing was sent.</p><button class="btn btn-gold" id="hunt-retry" type="button">Hunt</button></div>';
     else if (h.status === "error") body = '<div class="card bad-card"><b>' + esc(h.error || "Hunt failed.") + '</b><button class="btn btn-ghost" id="hunt-retry" type="button" style="margin-top:10px">Try again</button></div>';
@@ -552,24 +553,64 @@ function chBoot() {
   /* ONBOARDING — one-tap intention first, then the guided "Connect here" flow (AI → Card Ladder → hunt sites → summary).
      The same flow lives under More / Settings as "Add a connection" (#/connect). Only user-owned keys/accounts,
      official APIs, or a plain prefilled search — never scraping. */
+  /* Animated hound "working" indicator (gold greyhound art). Rotating status lines; motion off under prefers-reduced-motion (CSS). */
+  var HOUND_LINES = { hunt: ["Sniffing out listings…", "Checking sold comps…", "Matching the exact card…", "Ranking the best finds…"],
+    think: ["Thinking it over…", "Checking the details…", "Almost there…"], test: ["Checking your key…", "Almost there…"] };
+  function hound(kind, small) {
+    var L = HOUND_LINES[kind] || HOUND_LINES.think;
+    return '<div class="hound-work' + (small ? " sm" : "") + '" role="status" aria-live="polite"><div class="hound-stage" aria-hidden="true"><span class="hound-trail"><i></i><i></i><i></i></span><img class="hound-img" src="img/hound.webp" alt="" width="120" height="110"></div>' +
+      '<b class="hound-line" data-lines="' + esc(L.join("|")) + '">' + esc(L[0]) + '</b></div>';
+  }
+  setInterval(function () {
+    document.querySelectorAll(".hound-line[data-lines]").forEach(function (el) {
+      var L = el.dataset.lines.split("|"), i = (+(el.dataset.i || 0) + 1) % L.length; el.dataset.i = i; el.textContent = L[i];
+    });
+  }, 2200);
+  /* ONBOARDING — warm welcome: what CardHound does, then "How can I help you today?" (starter taps or free text).
+     The pick sets the goal (state.intent) that aims hunts/alerts; editable under More. Then the guided "Connect here" flow. */
+  var STARTERS = [
+    { intent: "flip", label: "Find deals to flip", sub: "Buys under sold prices" },
+    { intent: "hold", label: "Build my collection", sub: "Cards I love, fair prices" },
+    { intent: "grade", label: "Find cards to grade", sub: "Raw cards with upside" },
+    { intent: "other", label: "Just looking around", sub: "Show me what you can do" }
+  ];
+  function guessIntent(t) {
+    t = String(t || "").toLowerCase();
+    if (/flip|profit|resell|deal|under comp|cheap/.test(t)) return "flip";
+    if (/grade|psa|bgs|sgc|raw|gem/.test(t)) return "grade";
+    if (/collect|hold|pc\b|love|keep/.test(t)) return "hold";
+    return "other";
+  }
   function onboardScreen(p, mode) {
     var sub = (p && p.sub) || "intent";
     if (!mode && sub === "connect") { connectScreen(p, false); return; }
     var editing = mode === "intent";
-    view.innerHTML = (editing ? '<a class="link-btn" href="#/more">' + I("left") + 'More</a>' : '<div class="eyebrow">Welcome to CardHound</div>') +
-      '<h1 class="h1">What\'s your intention?</h1><p class="lead">We aim every hunt at it. Change it anytime under More.</p>' +
-      '<div class="intent-list" role="radiogroup" aria-label="Your intention">' + CH_HUNT.INTENTS.map(function (x) {
-        var on = state.intent === x.id;
-        return '<button type="button" class="intent' + (on ? " on" : "") + '" role="radio" aria-checked="' + on + '" data-intent="' + x.id + '"><b>' + esc(x.label) + '</b><span>' + esc(x.sub) + '</span></button>';
-      }).join("") + '</div>';
-    view.querySelectorAll("[data-intent]").forEach(function (b) {
-      b.onclick = function () {
-        var x = CH_HUNT.intentById(b.dataset.intent);
-        state.intent = x.id; LS.set("intent", x.id);
-        if (!LS.get("alertsTouched", false)) { state.alerts = { threshold: x.alertPct, on: true }; LS.set("alerts", state.alerts); }
-        if (editing) { toast("Saved: " + x.label); location.hash = "#/more"; } else location.hash = "#/start/connect/ai";
-      };
-    });
+    var does = [["search", "Finds cards for you", "Say it in plain words."], ["deals", "Checks the price", "Against sold comps."], ["gem", "Tells you what to do", "Buy, hold, sell or grade."], ["eye", "Watches auctions", "Auction Watch alerts you."]];
+    view.innerHTML = (editing ? '<a class="link-btn" href="#/more">' + I("left") + 'More</a>' :
+      '<section class="welcome"><div class="wl-hound" aria-hidden="true"><img src="img/hound.webp" alt="" width="120" height="110"></div>' +
+      '<h1 class="h1 wl-h">Hi, I\'m CardHound.</h1><p class="lead">I hunt cards so you don\'t have to.</p>' +
+      '<ul class="wl-does">' + does.map(function (d) { return '<li><span class="tic">' + I(d[0]) + '</span><span><b>' + d[1] + '</b><span>' + d[2] + '</span></span></li>'; }).join("") + '</ul></section>') +
+      '<h2 class="h1 wl-ask">' + (editing ? "How can I help you?" : "How can I help you today?") + '</h2>' +
+      '<div class="intent-list" role="radiogroup" aria-label="How can I help you">' + STARTERS.map(function (x) {
+        var on = state.intent === x.intent;
+        return '<button type="button" class="intent' + (on ? " on" : "") + '" role="radio" aria-checked="' + on + '" data-intent="' + x.intent + '"><b>' + esc(x.label) + '</b><span>' + esc(x.sub) + '</span></button>';
+      }).join("") + '</div>' +
+      '<div class="wl-free"><label class="small muted" for="wl-q">Or tell me in your words</label><textarea class="input" id="wl-q" rows="2" maxlength="300" placeholder="e.g. Raw Wemby rookies to grade under $100"></textarea>' +
+      '<button class="btn btn-gold" id="wl-go" type="button">' + (editing ? "Save" : "Let\'s go") + '</button></div>' +
+      '<p class="small dim" style="margin-top:10px">Change this anytime under More.</p>';
+    function choose(id, text) {
+      var x = CH_HUNT.intentById(id) || CH_HUNT.intentById("other");
+      state.intent = x.id; LS.set("intent", x.id);
+      if (text) LS.set("firstAsk", text);
+      if (!LS.get("alertsTouched", false)) { state.alerts = { threshold: x.alertPct, on: true }; LS.set("alerts", state.alerts); }
+      if (editing) { toast("Saved: " + x.label); location.hash = "#/more"; } else location.hash = "#/start/connect/ai";
+    }
+    view.querySelectorAll("[data-intent]").forEach(function (b) { b.onclick = function () { choose(b.dataset.intent); }; });
+    document.getElementById("wl-go").onclick = function () {
+      var t = document.getElementById("wl-q").value.trim();
+      if (!t) { document.getElementById("wl-q").focus(); toast("Tap a choice or type what you need."); return; }
+      choose(guessIntent(t), t);
+    };
   }
   var CONNECT_STEPS = ["ai", "ebay", "ladder", "sites"];
   /* One Connections screen. Each service is one row: pill (Connected / Needs attention / Not connected) + last checked,
@@ -753,7 +794,7 @@ function chBoot() {
     function draw(busy) {
       view.innerHTML = '<a class="link-btn" href="' + (existing ? "#/plan/" + esc(id) : "#/scan") + '">' + I("left") + (existing ? "Plan" : "Home") + '</a><div class="eyebrow" style="margin-top:10px">' + (existing ? "Edit plan" : "New hunt plan") + '</div><h1 class="h1" style="font-size:26px">Build it with your AI</h1>' +
         (canLive() ? "" : '<div class="card"><b>Connect your AI first.</b><p class="small muted" style="margin:6px 0 10px">Your AI proposes the plan; you edit it.</p><a class="btn btn-gold btn-sm" href="#/connect/ai">Connect your AI</a></div>') +
-        '<div class="plan-thread" id="plan-thread">' + dft.thread.slice(-8).map(function (m) { return '<div class="pmsg ' + (m.who === "you" ? "me" : "ai") + '"><span class="who">' + (m.who === "you" ? "You" : "Your AI") + '</span>' + esc(m.text) + '</div>'; }).join("") + (busy ? '<div class="pmsg ai"><span class="who">Your AI</span>…</div>' : "") + '</div>' +
+        '<div class="plan-thread" id="plan-thread">' + dft.thread.slice(-8).map(function (m) { return '<div class="pmsg ' + (m.who === "you" ? "me" : "ai") + '"><span class="who">' + (m.who === "you" ? "You" : "Your AI") + '</span>' + esc(m.text) + '</div>'; }).join("") + (busy ? '<div class="pmsg ai">' + hound("think", true) + '</div>' : "") + '</div>' +
         (dft.plan ? '<div class="card plan-draft"><div class="row between"><b>Proposed plan</b><span class="chip">Draft</span></div>' + planSummaryHTML(dft.plan) +
           '<div class="field"><label for="plan-name">Name</label><input class="input" id="plan-name" maxlength="40" value="' + esc(dft.plan.name) + '"></div><button class="btn btn-gold" id="plan-save" type="button">Save plan</button></div>' : "") +
         '<div class="plan-input"><textarea class="input" id="plan-msg" rows="2" maxlength="500" placeholder="e.g. Raw 1998 Chrome rookies under $150, eBay and COMC, daily, top 5 under comps" aria-label="Message your AI"' + (canLive() && !busy ? "" : " disabled") + '></textarea><button class="btn btn-gold" id="plan-send" type="button"' + (canLive() && !busy ? "" : " disabled") + '>Send</button></div>' +
@@ -800,7 +841,7 @@ function chBoot() {
       '<div class="ring-wrap"><svg viewBox="0 0 72 72"><defs><linearGradient id="rg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fbecc0"/><stop offset=".5" stop-color="#c9972b"/><stop offset="1" stop-color="#f1d48a"/></linearGradient></defs>' +
       '<circle cx="36" cy="36" r="32" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="4"/><circle id="ring" cx="36" cy="36" r="32" fill="none" stroke="url(#rg)" stroke-width="4" stroke-linecap="round" stroke-dasharray="' + C.toFixed(1) + '" stroke-dashoffset="' + C.toFixed(1) + '"/></svg><span class="pct num" id="pctv">0%</span></div></div>' +
       '<div><h1 class="an-title">CardHound is analyzing<span class="dots"></span></h1><p class="muted small" style="margin:4px 0 0">' + (state.liveHunt && state.liveHunt.status === "pending" ? "Asking your AI. Sold prices stay SAMPLE until a reply returns." : "Sample card. Results stay SAMPLE until a live reply returns.") + '</p></div>' +
-      '<ol class="an-steps">' + steps + '</ol></div>' + footer();
+      hound("hunt", true) + '<ol class="an-steps">' + steps + '</ol></div>' + footer();
     var ring = document.getElementById("ring"), pv = document.getElementById("pctv"), lis = view.querySelectorAll(".an-steps li");
     var total = 6000, per = total / STEPS.length, t0 = performance.now();
     var iv = setInterval(function () {
@@ -1934,7 +1975,7 @@ function chBoot() {
   }
   function moreScreen() {
     var itn = intentNow();
-    var yours = [["#/intent", "target", "Your intention", itn ? itn.label + " · change" : "Flip, hold, grade, or other"], ["#/connect", "plug", "Connections", "Your AI, eBay, Card Ladder, hunt sites"], ["#/daily", "report", "Daily report", "Saved hunts, a sourced brief, your movers"], ["#/ask", "mic", "Ask", "Hunts and questions. Not on Home."], ["#/ledger", "wallet", "Portfolio", "Buys, cost, and value on this phone"], ["#/deals/watch", "eye", "Watchlist", "Cards and listings you are watching"], ["#/deals/snipes", "target", "Auction Watch", "Reminders. You set the max."], ["#/deals", "deals", "For sale", "Asking prices versus sample comps"], ["#/lists/gems", "gem", "Gems", "Hunt listings under your comps"]];
+    var yours = [["#/intent", "target", "How I help you", itn ? itn.label + " · change" : "Flip, collect, grade, or just looking"], ["#/connect", "plug", "Connections", "Your AI, eBay, Card Ladder, hunt sites"], ["#/daily", "report", "Daily report", "Saved hunts, a sourced brief, your movers"], ["#/ask", "mic", "Ask", "Hunts and questions. Not on Home."], ["#/ledger", "wallet", "Portfolio", "Buys, cost, and value on this phone"], ["#/deals/watch", "eye", "Watchlist", "Cards and listings you are watching"], ["#/deals/snipes", "target", "Auction Watch", "Reminders. You set the max."], ["#/deals", "deals", "For sale", "Asking prices versus sample comps"], ["#/lists/gems", "gem", "Gems", "Hunt listings under your comps"]];
     var tools = [["#/lists/movers", "markets", "Lists", "Movers and gems from your own cards"], ["#/tool/alerts", "bell", "Alerts", "Under-comp and new-high alerts"], ["#/settings", "sliders", "Settings", "Card Ladder, AI, import, eBay, PSA"], ["#/tool/fees", "calc", "Fee and net", "What you keep after eBay fees"], ["#/tool/roi", "layers", "Grading ROI", "Raw versus graded after fees"], ["#/tool/variant", "list", "Exact variant check", "Parallel, refractor, reprint, slab"], ["#/tool/offer", "handshake", "Best Offer helper", "Suggested offer and walk-away"]];
     if (window.CH_APP && window.CH_APP.moreItemsTop && window.CH_APP.moreItemsTop.length) {
       yours = window.CH_APP.moreItemsTop.map(function (t) { return ["#/" + t[0], t[1], t[2], t[3]]; }).concat(yours);
@@ -2019,7 +2060,7 @@ function chBoot() {
     var go = document.getElementById("brief-go");
     if (go && canLive()) go.onclick = function () {
       leaveGate(function () {
-        el.innerHTML = '<p class="small muted brief-wait">Your AI is searching…</p>';
+        el.innerHTML = hound("hunt", true);
         var prefs = CH_DAILY.normalize(LS.get("daily", CH_DAILY.defaults)), it = intentNow();
         CH_INSIGHTS.runBrief({ provider: CH_AI.normalize(state.ai).provider, key: aiSecret(), endpoint: aiEndpoint(), intent: it ? it.label : "", kinds: prefs.categories, hunts: savedHunts().map(function (h) { return h.query; }) }).then(function (r) {
           if (!document.getElementById("brief-body")) return;
