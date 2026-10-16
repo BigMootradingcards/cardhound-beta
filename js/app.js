@@ -612,7 +612,7 @@ function chBoot() {
     think: ["Thinking it over…", "Checking the details…", "Almost there…"], test: ["Checking your key…", "Almost there…"] };
   function hound(kind, small) {
     var L = HOUND_LINES[kind] || HOUND_LINES.think;
-    return '<div class="hound-work' + (small ? " sm" : "") + '" role="status" aria-live="polite"><div class="hound-stage" aria-hidden="true"><span class="hound-trail"><i></i><i></i><i></i></span><img class="hound-img" src="img/hound.webp" alt="" width="120" height="110"></div>' +
+    return '<div class="hound-work' + (small ? " sm" : "") + '" role="status" aria-live="polite"><div class="hound-stage" aria-hidden="true"><span class="hound-paws"><i></i><i></i><i></i><i></i></span><span class="hound-trail"><i></i><i></i><i></i></span><span class="hound-body"><img class="hound-img" src="img/hound.webp" alt="" width="120" height="110"><span class="hound-shine"></span></span><span class="hound-shadow"></span></div>' +
       '<b class="hound-line" data-lines="' + esc(L.join("|")) + '">' + esc(L[0]) + '</b></div>';
   }
   setInterval(function () {
