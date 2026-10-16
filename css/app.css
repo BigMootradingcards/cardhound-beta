@@ -841,3 +841,4 @@ select.input option{background:#111116;color:var(--text)}
 @keyframes hbob{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
 @keyframes htrail{0%,100%{opacity:.15;transform:scale(.8)}50%{opacity:1;transform:scale(1.15)}}
 @media (prefers-reduced-motion:reduce){.hound-img,.wl-hound img,.hound-trail i{animation:none!important}.hound-trail i{opacity:.6}}
+.intent.ask{min-height:64px;padding:14px 18px}.intent.ask b{font-size:18px;line-height:1.25}.intent.ask span{font-size:12.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--gold)}

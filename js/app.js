@@ -569,10 +569,11 @@ function chBoot() {
   /* ONBOARDING — warm welcome: what CardHound does, then "How can I help you today?" (starter taps or free text).
      The pick sets the goal (state.intent) that aims hunts/alerts; editable under More. Then the guided "Connect here" flow. */
   var STARTERS = [
-    { intent: "flip", label: "Find deals to flip", sub: "Buys under sold prices" },
-    { intent: "hold", label: "Build my collection", sub: "Cards I love, fair prices" },
-    { intent: "grade", label: "Find cards to grade", sub: "Raw cards with upside" },
-    { intent: "other", label: "Just looking around", sub: "Show me what you can do" }
+    { intent: "grade", label: "Cheap Wemby rookies with a high gem rate", sub: "Grade" },
+    { intent: "grade", label: "Raw Caitlin Clark rookies under $50 to grade", sub: "Grade" },
+    { intent: "flip", label: "Underpriced Charizard PSA 9s on eBay", sub: "Deal" },
+    { intent: "flip", label: "Ohtani auctions ending tonight below comps", sub: "Deal" },
+    { intent: "hold", label: "Clean Mahomes rookies for my collection", sub: "Collect" }
   ];
   function guessIntent(t) {
     t = String(t || "").toLowerCase();
@@ -585,17 +586,17 @@ function chBoot() {
     var sub = (p && p.sub) || "intent";
     if (!mode && sub === "connect") { connectScreen(p, false); return; }
     var editing = mode === "intent";
-    var does = [["search", "Finds cards for you", "Say it in plain words."], ["deals", "Checks the price", "Against sold comps."], ["gem", "Tells you what to do", "Buy, hold, sell or grade."], ["eye", "Watches auctions", "Auction Watch alerts you."]];
+    var does = [["search", "Finds the card", "\u201cCheap Wemby rookies\u201d"], ["deals", "Checks the price", "Ask vs. sold comps"], ["gem", "Says what to do", "Buy, hold, sell or grade"], ["eye", "Watches auctions", "Auction Watch pings you"]];
     view.innerHTML = (editing ? '<a class="link-btn" href="#/more">' + I("left") + 'More</a>' :
       '<section class="welcome"><div class="wl-hound" aria-hidden="true"><img src="img/hound.webp" alt="" width="120" height="110"></div>' +
       '<h1 class="h1 wl-h">Hi, I\'m CardHound.</h1><p class="lead">I hunt cards so you don\'t have to.</p>' +
       '<ul class="wl-does">' + does.map(function (d) { return '<li><span class="tic">' + I(d[0]) + '</span><span><b>' + d[1] + '</b><span>' + d[2] + '</span></span></li>'; }).join("") + '</ul></section>') +
       '<h2 class="h1 wl-ask">' + (editing ? "How can I help you?" : "How can I help you today?") + '</h2>' +
-      '<div class="intent-list" role="radiogroup" aria-label="How can I help you">' + STARTERS.map(function (x) {
+      '<div class="intent-list" aria-label="Tap an example">' + STARTERS.map(function (x) {
         var on = state.intent === x.intent;
-        return '<button type="button" class="intent' + (on ? " on" : "") + '" role="radio" aria-checked="' + on + '" data-intent="' + x.intent + '"><b>' + esc(x.label) + '</b><span>' + esc(x.sub) + '</span></button>';
+        return '<button type="button" class="intent ask" data-intent="' + x.intent + '" data-ask="' + esc(x.label) + '"><b>' + esc(x.label) + '</b><span>' + esc(x.sub) + '</span></button>';
       }).join("") + '</div>' +
-      '<div class="wl-free"><label class="small muted" for="wl-q">Or tell me in your words</label><textarea class="input" id="wl-q" rows="2" maxlength="300" placeholder="e.g. Raw Wemby rookies to grade under $100"></textarea>' +
+      '<div class="wl-free"><label class="small muted" for="wl-q">Or tell me in your words</label><textarea class="input" id="wl-q" rows="2" maxlength="300" placeholder="e.g. Wemby Prizm Silver rookie, raw, cheap"></textarea>' +
       '<button class="btn btn-gold" id="wl-go" type="button">' + (editing ? "Save" : "Let\'s go") + '</button></div>' +
       '<p class="small dim" style="margin-top:10px">Change this anytime under More.</p>';
     function choose(id, text) {
@@ -605,7 +606,7 @@ function chBoot() {
       if (!LS.get("alertsTouched", false)) { state.alerts = { threshold: x.alertPct, on: true }; LS.set("alerts", state.alerts); }
       if (editing) { toast("Saved: " + x.label); location.hash = "#/more"; } else location.hash = "#/start/connect/ai";
     }
-    view.querySelectorAll("[data-intent]").forEach(function (b) { b.onclick = function () { choose(b.dataset.intent); }; });
+    view.querySelectorAll("[data-intent]").forEach(function (b) { b.onclick = function () { choose(b.dataset.intent, b.dataset.ask); }; });
     document.getElementById("wl-go").onclick = function () {
       var t = document.getElementById("wl-q").value.trim();
       if (!t) { document.getElementById("wl-q").focus(); toast("Tap a choice or type what you need."); return; }
