@@ -5,7 +5,7 @@ window.CH_VOICE = function (U) {
   var V = window.CH_VOICE_PARSE, D = U.D, I = U.I, esc = U.esc, money = U.money, toast = U.toast;
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   var st = { msgs: [], answers: {}, pendingText: null, lastHunt: null, listings: null, rec: null, listening: false, seq: 0, store: {} };
-  var EXAMPLES = ["Raw Prizm silver rookies under $400", "Find a Wemby chrome refractor rookie under $150", "What are the top movers in Pokemon today", "Should I grade this", "What's my portfolio up this week", "Show me new highs in Prizm", "Late 90s Kobe PMG or Credentials", "Set a max bid on this under $200"];
+  var EXAMPLES = ["Raw Prizm silver rookies under $400", "Find a Chrome refractor rookie under $150", "What are the top movers in Pokemon today", "Should I grade this", "What's my portfolio up this week", "Show me new highs in Prizm", "Late 90s inserts under comp", "Set a max bid on this under $200"];
   var ttsOn = function () { return !!U.LS.get("voice_tts", false); };
   function listings() { if (st.listings) return Promise.resolve(st.listings); return (D.getHuntListings ? D.getHuntListings() : Promise.resolve((window.CARDHOUND_SAMPLE || {}).huntListings || [])).then(function (l) { st.listings = l; return l; }); }
   function byId(id) { return (st.listings || []).filter(function (l) { return l.id === id; })[0]; }
@@ -292,7 +292,7 @@ window.CH_VOICE = function (U) {
     });
   }
   function help() {
-    bot('<p>Ask by voice or type. Examples:</p><div class="vq-opts col">' + EXAMPLES.concat(["Add this to my watchlist", "I bought a Luka Prizm silver for $300", "Turn off new high alerts"]).map(function (e) { return btn(esc(e), 'data-v="say" data-t="' + esc(e) + '"'); }).join("") + '</div>', "You can ask for movers, hunts, grading calls, your portfolio, Auction Watch and more.");
+    bot('<p>Ask by voice or type. Examples:</p><div class="vq-opts col">' + EXAMPLES.concat(["Add this to my watchlist", "I bought a Prizm silver for $300", "Turn off new high alerts"]).map(function (e) { return btn(esc(e), 'data-v="say" data-t="' + esc(e) + '"'); }).join("") + '</div>', "You can ask for movers, hunts, grading calls, your portfolio, Auction Watch and more.");
   }
   var ALT = { card_hunt: ["Find a card", "find raw prizm silver rookies under $400"], card_lookup: ["Look up a card", "how much is the pujols T247"], lists: ["Show market lists", "top movers today"], should_grade: ["Should I grade it?", "should I grade this"], portfolio_summary: ["My portfolio", "what's my portfolio up this week"], watchlist_add: ["Add to watchlist", "add this to my watchlist"], sniper_set: ["Auction Watch", "set a max bid on this"], best_offer: ["Make an offer", "make an offer on this"], buy: ["Buy it", "buy this"], gem_hunt_save: ["Save a Gem Hunt", "save this hunt"], alerts_settings: ["Alert settings", "alert settings"], ledger_add: ["Log a buy", "log a buy"], help: ["What can you do?", "help"], watchlist_remove: ["Remove from watchlist", "remove this from my watchlist"] };
   function unknown(r) {

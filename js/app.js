@@ -352,10 +352,10 @@ function chBoot() {
   }
   /* HOME — the hunt box leads. Photo ID is secondary. */
   var HUNT_EXAMPLES = {
-    flip: ["98 Chrome rookies PSA 9 under $150", "Raw Wemby Prizm under comp", "Pokémon slabs priced under recent sales"],
-    hold: ["Clean Jordan inserts under $300", "Ohtani rookies with great centering", "Charizard I'd keep forever"],
-    grade: ["Cards Card Doc could clean that would grade higher", "Raw 90s Chrome stars, sharp corners", "Raw Pokémon holos with good centering"],
-    other: ["98 Chrome rookies PSA 9 under $150", "Cards Card Doc could clean that would grade higher", "Star Wars autos under $100"]
+    flip: ["Raw rookies under comp", "Auctions ending soon under comp", "Pokémon graded deals"],
+    hold: ["Vintage deals", "Clean rookies with great centering", "Inserts I'd keep forever"],
+    grade: ["Cards worth grading", "Raw 90s Chrome stars, sharp corners", "Raw Pokémon holos with good centering"],
+    other: ["Raw rookies under comp", "Cards worth grading", "Vintage deals"]
   };
   function intentNow() { return CH_HUNT.intentById(state.intent) || null; }
   function aiBannerHTML() {
@@ -563,7 +563,7 @@ function chBoot() {
       '<div class="rchips" id="hunt-chips"></div>' +
       '<div class="sug-chips" id="hunt-sug" aria-label="Quick refine"></div>' +
       '<div class="hunt-log" id="hunt-log" aria-live="polite"></div>' +
-      '<form class="refine" id="refine"><input class="input" id="refine-q" placeholder="Refine: only PSA 9+, under $200, no Moss" autocomplete="off" aria-label="Refine the hunt"><button class="btn btn-gold btn-sm" type="submit">Refine</button></form>' +
+      '<form class="refine" id="refine"><input class="input" id="refine-q" placeholder="Refine: only PSA 9+, under $200, no lots" autocomplete="off" aria-label="Refine the hunt"><button class="btn btn-gold btn-sm" type="submit">Refine</button></form>' +
       '<div id="hunt-body" aria-live="polite"></div>' +
       '<div id="hunt-open" class="hunt-open"></div>' +
       '<aside class="flow-end"><p>Listings come from your AI\'s live web search of public pages. Price and availability can change. Check the listing before you buy. CardHound never buys or bids for you.</p><p>Not financial advice.</p>' + (/^\d{10}$/.test(String(CFG.epnCampaignId || "")) ? '<p>eBay links may earn CardHound a commission. Your price stays the same.</p>' : "") + '</aside>';
@@ -1095,7 +1095,7 @@ function chBoot() {
       '<div class="card" style="margin-top:14px"><button class="row between" id="ovr" type="button" style="width:100%;min-height:48px"><span class="row" style="gap:10px"><b style="font-size:15px">Type the set myself</b></span><span class="dim">' + I("down") + '</span></button>' +
       '<div id="ovr-form" ' + (c.length ? "hidden" : "") + '><div class="grid2"><div class="field"><label for="o-year">Year</label><input class="input" id="o-year" placeholder="2001" inputmode="numeric" value="' + esc(pre.year || "") + '"></div><div class="field"><label for="o-num">Card #</label><input class="input" id="o-num" placeholder="T247" value="' + esc(pre.card_number || pre.number || "") + '"></div></div>' +
       '<div class="field"><label for="o-kind">Kind</label>' + kindSelectHTML(pre.category || "", { id: "o-kind", emptyLabel: "Any kind" }) + '</div>' +
-      '<div class="field"><label for="o-set-q">Set</label><input class="input" id="o-set-q" placeholder="Search year or set" autocomplete="off" value="' + esc(pre.set ? setLabel(pre.year, pre.set) : "") + '"><input type="hidden" id="o-set" value="' + esc(pre.set || "") + '">' + setPickHTML(pre.set || "", pre.set || "") + '</div><div class="field"><label for="o-player">Player or subject</label><input class="input" id="o-player" placeholder="Albert Pujols" value="' + esc(pre.player || "") + '"></div>' +
+      '<div class="field"><label for="o-set-q">Set</label><input class="input" id="o-set-q" placeholder="Search year or set" autocomplete="off" value="' + esc(pre.set ? setLabel(pre.year, pre.set) : "") + '"><input type="hidden" id="o-set" value="' + esc(pre.set || "") + '">' + setPickHTML(pre.set || "", pre.set || "") + '</div><div class="field"><label for="o-player">Player or subject</label><input class="input" id="o-player" placeholder="Player or character" value="' + esc(pre.player || "") + '"></div>' +
       '<div class="field"><label for="o-var">Parallel or variant</label><input class="input" id="o-var" placeholder="Base, Refractor, Gold /50" value="' + esc(pre.parallel_color || pre.variant || "") + '"></div>' +
       '<p class="confirm-err" id="confirm-err" hidden>Add the set (example: 1998 Topps Chrome).</p></div></div>' +
       '<div class="cta-stack"><button class="btn btn-gold" id="confirm" type="button">Confirm — show sold prices</button><a class="btn btn-ghost" href="#/scan">Start over</a></div>' + flowEnd({ leave: true, huntLine: state.liveHunt ? CH_AI.huntLine(state.liveHunt) : "" }) + footer();
