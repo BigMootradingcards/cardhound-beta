@@ -41,6 +41,7 @@
     return [
       "You help a trading card collector set up a saved hunt plan. Goal: " + clean(o.intent || "not set", 40) + ".",
       FENCE,
+      (root.CH_KNOW || (function () { try { return require("./knowledge.js"); } catch (e) { return { pack: function () { return ""; } }; } })()).pack("plan", { intent: /flip/i.test(o.intent || "") ? "flip" : /grad/i.test(o.intent || "") ? "grade" : /hold|collect/i.test(o.intent || "") ? "hold" : "other" }),
       "<current_plan>" + JSON.stringify(o.plan || blank()) + "</current_plan>",
       "<user_message>" + clean(o.message, 500) + "</user_message>",
       "Update the plan from the user's message. If something important is missing (what card, price cap, how often, what to hand back), ask ONE short question in reply. Keep reply under 40 words, plain and friendly. Never invent prices.",

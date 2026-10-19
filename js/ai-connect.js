@@ -77,7 +77,7 @@
   }
   var HUNT_NOTE = "This is a buy hunt, not a sold-price feed. Name the card if you can (year, set, number, player, variant). If you cannot, say what is missing. Say deal, overpaying, or underpaying only when you know a real sold price. Otherwise say you cannot call the price. Name where to look for listings, deals, promos, or hard-to-find copies. Do not invent a sold price. Card Ladder is the sold-comp source. Under 80 words.";
   function huntPrompt(text) {
-    return HUNT_NOTE + " User asked: " + String(text || "").slice(0, 1500);
+    return HUNT_NOTE + (root.CH_KNOW ? " " + root.CH_KNOW.pack("help") : "") + " User asked: " + String(text || "").slice(0, 1500);
   }
   function readText(provider, json) {
     json = json || {};

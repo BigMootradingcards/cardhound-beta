@@ -185,6 +185,7 @@
     return [
       "You write a short daily trading card market brief. Use web search for news from the last 7 days.",
       BRIEF_FENCE,
+      (root.CH_KNOW || (function () { try { return require("./knowledge.js"); } catch (e) { return { pack: function () { return ""; } }; } })()).pack("brief"),
       "<user_context>Goal: " + clean(o.intent || "not set", 40) + ". Kinds: " + (kinds.join(", ") || "any") + ". Saved hunts: " + (hunts.join("; ") || "none") + ".</user_context>",
       "Rules: up to 5 items relevant to the goal, kinds and hunts. Every item MUST cite the exact https URL of a page you actually read in search results. No invented prices, no predictions, no advice. Headline under 12 words, detail under 30 words.",
       'Answer ONLY JSON: {"items":[{"headline":"","detail":"","source_url":"https://...","source_title":""}],"reply":""}'
