@@ -507,14 +507,17 @@ function chBoot() {
         finishHunt(h, r); saveHunt(); paintHunt();
       });
     }
+    /* Order: connect AI first (if needed), then the comp lookback question, then the hunt. */
+    function needLookback() { if (h.compAsk && !h.compDays) { h.status = "lookback"; saveHunt(); paintHunt(); return true; } return false; }
     if (!canLive()) {
       /* No AI: eBay Worker alone can still return real listings when it is live; otherwise ask for a one-step AI connect. */
       CH_HUNT.workerHealthy(CFG.ebayWorkerUrl || "", fetch.bind(window)).then(function (live) {
-        if (live) go2();
+        if (live) { if (!needLookback()) go2(); }
         else { h.status = "needai"; saveHunt(); paintHunt(); aiSheet({ then: runHunt, title: "Connect your AI to hunt" }); }
       });
       return;
     }
+    if (needLookback()) return;
     leaveGate(go2, function () { h.status = "held"; saveHunt(); paintHunt(); });
   }
   /* Saved hunts feed Daily: re-run on open (cached 6h so the user's AI isn't billed on every visit). */
@@ -647,7 +650,7 @@ function chBoot() {
       saveHunt(); paintHunt(); runHunt();
     };
     paintHunt();
-    if (state.huntQueued) { state.huntQueued = false; if (h.compAsk && !h.compDays) { h.status = "lookback"; saveHunt(); paintHunt(); } else runHunt(); }
+    if (state.huntQueued) { state.huntQueued = false; runHunt(); }
   }
   function pickListing(it) {
     if (!it) return;
