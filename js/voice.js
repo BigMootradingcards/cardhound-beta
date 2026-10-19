@@ -5,6 +5,7 @@ window.CH_VOICE = function (U) {
   var V = window.CH_VOICE_PARSE, D = U.D, I = U.I, esc = U.esc, money = U.money, toast = U.toast;
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   var st = { msgs: [], answers: {}, pendingText: null, lastHunt: null, listings: null, rec: null, listening: false, seq: 0, store: {} };
+  var SIMPLE_EXAMPLES = ["Should I grade this raw rookie?", "Where should I sell a graded card?", "What is this card worth? Check sold comps", "Is this listing a fair price?"];
   var EXAMPLES = ["Raw Prizm silver rookies under $400", "Find a Chrome refractor rookie under $150", "What are the top movers in Pokemon today", "Should I grade this", "What's my portfolio up this week", "Show me new highs in Prizm", "Late 90s inserts under comp", "Set a max bid on this under $200"];
   var ttsOn = function () { return !!U.LS.get("voice_tts", false); };
   function listings() { if (st.listings) return Promise.resolve(st.listings); return (D.getHuntListings ? D.getHuntListings() : Promise.resolve((window.CARDHOUND_SAMPLE || {}).huntListings || [])).then(function (l) { st.listings = l; return l; }); }
@@ -95,18 +96,31 @@ window.CH_VOICE = function (U) {
     if (U.canAi && U.canAi()) {
       var r0 = V.routeVoiceIntent(text, { currentCard: U.lastCard() });
       if (r0.intent === "card_hunt" && U.submitHunt) { U.submitHunt(text); return; }
+      var LB = window.CH_LOOKBACK, days = LB ? LB.parse(text) : null;
+      if (LB && LB.isCompAsk(text) && !days) {
+        var qid = aiBot('<p>Before we look at comps:</p>' + LB.html("ask-lb-" + Date.now()));
+        var qel = document.getElementById(qid), lbEl = qel && qel.querySelector(".lookback");
+        LB.wire(lbEl, function (d) { if (lbEl) lbEl.outerHTML = '<p class="small muted">Comps: last ' + esc(LB.label(d)) + '</p>'; askAi(text, d); });
+        return;
+      }
+      askAi(text, days);
+      return;
+    }
+    if (U.simple) { push("bot", '<div class="vb"><div class="vb-h"><span class="vb-dot"></span>CardHound</div><p>Connect your AI and Ask answers here. Nothing here is sample.</p><button type="button" class="btn btn-gold btn-sm" data-v="aiconnect">Connect your AI</button></div>'); return; }
+    var last = U.lastCard();
+    var r = V.routeVoiceIntent(text, { currentCard: last });
+    listings().then(function () { handle(r, text, last); });
+  }
+  function askAi(text, days) {
+    {
       var mid = aiBot('<p class="muted">Asking your AI…</p>');
-      U.aiAsk(text).then(function (res) {
+      U.aiAsk(text, days).then(function (res) {
         var el = document.getElementById(mid); if (!el) return;
         var html = res.ok ? '<p>' + esc(res.text).replace(/\n+/g, "</p><p>") + '</p><p class="micro-note">From your AI. Not a sold price. Not advice.</p>' : '<p>' + esc(res.error) + '</p>';
         el.innerHTML = '<div class="vb"><div class="vb-h"><span class="vb-dot"></span>Your AI</div>' + html + '</div>';
         if (res.ok) speak(res.text);
       });
-      return;
     }
-    var last = U.lastCard();
-    var r = V.routeVoiceIntent(text, { currentCard: last });
-    listings().then(function () { handle(r, text, last); });
   }
   function needCard(intentLabel, text) {
     var lc = U.lastCard();
@@ -351,8 +365,8 @@ window.CH_VOICE = function (U) {
     v.innerHTML = '<div class="vc-head"><div><div class="eyebrow">Voice and prompt search</div><h1 class="h1" style="font-size:30px">Ask <em>CardHound</em></h1></div>' +
       '<button class="icon-btn vc-tts' + (ttsOn() ? " on" : "") + '" data-v="tts" aria-pressed="' + (ttsOn() ? "true" : "false") + '" aria-label="Spoken replies">' + I("speaker") + '</button></div>' +
       '<p class="lead" style="margin-top:2px">Say or type a card, a hunt, or a question. Exact variants only. ' + (SR ? "Tap the mic to talk." : "Voice isn't available in this browser, so type instead.") + '</p>' +
-      (U.canAi && U.canAi() ? '<p class="small muted" style="margin:-6px 0 12px">Runs on your AI.</p>' : '<button type="button" class="ai-banner" data-v="aiconnect"><span><b>Connect your AI so Ask runs on it</b><span>Until then, answers are SAMPLE.</span></span>' + I("right") + '</button>') +
-      '<div id="vc-ex" class="vc-ex"' + (st.msgs.length ? ' style="display:none"' : "") + '>' + EXAMPLES.map(function (e) { return '<button class="chip" data-v="say" data-t="' + esc(e) + '">' + esc(e) + '</button>'; }).join("") + '</div>' +
+      (U.canAi && U.canAi() ? '<p class="small muted" style="margin:-6px 0 12px">Runs on your AI.</p>' : '<button type="button" class="ai-banner" data-v="aiconnect"><span><b>Connect your AI so Ask runs on it</b><span>' + (U.simple ? "Ask needs your AI. Nothing here is sample." : "Until then, answers are SAMPLE.") + '</span></span>' + I("right") + '</button>') +
+      '<div id="vc-ex" class="vc-ex"' + (st.msgs.length ? ' style="display:none"' : "") + '>' + (U.simple ? SIMPLE_EXAMPLES : EXAMPLES).map(function (e) { return '<button class="chip" data-v="say" data-t="' + esc(e) + '">' + esc(e) + '</button>'; }).join("") + '</div>' +
       '<div id="vc-thread" class="vc-thread">' + st.msgs.map(function (m) { return '<div class="vmsg ' + m.role + '" id="' + m.id + '">' + m.html + '</div>'; }).join("") + '</div>' + U.footer() + '<div class="vc-spacer"></div>';
     var c = document.getElementById("vc-composer");
     if (!c) { c = document.createElement("form"); c.id = "vc-composer"; c.className = "vc-composer"; c.setAttribute("autocomplete", "off"); document.getElementById("app").appendChild(c); }

@@ -118,6 +118,20 @@
     return { rows: out, checked: checked };
   }
 
+  /* One hunt listing vs the user's own Ladder comps in a chosen window. null = not an exact, priceable card (UNPRICED). */
+  function itemComp(it, pending, opts) {
+    opts = opts || {};
+    if (!it || !(Number(it.price) > 0) || !it.set || !it.number) return null;
+    var id = identityFor(it.title, { year: it.year, set: it.set, number: it.number, player: it.player, variant: it.variant });
+    if (!id) return null;
+    var CM = (typeof CH_MATCH !== "undefined" && CH_MATCH) || globalThis.CH_MATCH;
+    if (CM && it.title && CM.compare(CM.fromCard(id), CM.parse(it.title), { ignoreGrade: true }).verdict !== "match") return null;
+    var rep = report(id, pending, { days: opts.days, asOf: opts.asOf }), gk = gradeKey(it.grade || "Raw"), g = rep.grades[gk];
+    if (!g || !g.all.n) return { priced: false, grade: gradeLabel(gk), days: rep.days };
+    var total = (Number(it.price) || 0) + (Number(it.shipping) || 0);
+    var k = call({ comps: rep.grades, grade: gk, listingTotal: it.auction ? 0 : total, cost: 0, intent: opts.intent, alertPct: opts.alertPct });
+    return { priced: true, grade: g.label, median: g.all.median, n: g.all.n, thin: g.thin, excluded: g.excluded, days: rep.days, pct: (1 - total / g.all.median) * 100, call: it.auction ? null : k.call, why: it.auction ? "" : k.why };
+  }
   /* Listings from hunts that are this exact card (setguard), any grade. */
   function listingsFor(card, listings) {
     if (!SG || !card) return [];
@@ -138,14 +152,19 @@
     opts = opts || {};
     var asOf = opts.asOf != null ? opts.asOf : today();
     var all = compsFor(card, pending, null), groups = byGrade(all), grades = {};
+    var days = Number(opts.days) > 0 ? Math.round(Number(opts.days)) : 0;
     Object.keys(groups).forEach(function (gk) {
       var fl = flagOneOffs(groups[gk]), clean = fl.filter(function (s) { return !s.oneOff; });
+      if (days) { /* user-chosen lookback: only dated sales inside the window count; one-offs inside it stay visible */
+        fl = fl.filter(function (s) { var d = dayNum(s.date); return d != null && asOf - d >= 0 && asOf - d < days; });
+        clean = fl.filter(function (s) { return !s.oneOff; });
+      }
       grades[gk] = { label: gradeLabel(gk), sales: fl, all: stats(clean), thin: clean.length < THIN,
         w30: stats(inWindow(fl, asOf, 0, 30)), w90: stats(inWindow(fl, asOf, 0, 90)), w365: stats(inWindow(fl, asOf, 0, 365)),
         excluded: fl.length - clean.length };
     });
     var order = Object.keys(grades).sort(function (a, b) { return grades[b].all.n - grades[a].all.n; });
-    return { grades: grades, order: order, priced: order.some(function (k) { return grades[k].all.n > 0; }) };
+    return { grades: grades, order: order, days: days || null, totalSales: all.length, priced: order.some(function (k) { return grades[k].all.n > 0; }) };
   }
   function net(gross) { return gross * (1 - FEES.ebayPct) - FEES.ebayFixed; }
   /* Rules-based call. Only when priced (clean comps in this grade) AND there is a price to judge (listing or your cost). */
@@ -222,7 +241,7 @@
   }
   function dayKey(now) { var n = now ? new Date(now) : new Date(); return n.getFullYear() + "-" + String(n.getMonth() + 1).padStart(2, "0") + "-" + String(n.getDate()).padStart(2, "0"); }
 
-  var api = { dayNum: dayNum, today: today, median: median, gradeKey: gradeKey, gradeLabel: gradeLabel, flagOneOffs: flagOneOffs, stats: stats,
+  var api = { itemComp: itemComp, dayNum: dayNum, today: today, median: median, gradeKey: gradeKey, gradeLabel: gradeLabel, flagOneOffs: flagOneOffs, stats: stats,
     movers: movers, gems: gems, listingsFor: listingsFor, report: report, call: call, net: net, FEES: FEES, GRADE_COST: GRADE_COST, THIN: THIN, WINDOWS: WINDOWS,
     briefPrompt: briefPrompt, cleanBrief: cleanBrief, interpretBrief: interpretBrief, runBrief: runBrief, dayKey: dayKey, identityFor: identityFor };
   root.CH_INSIGHTS = api;

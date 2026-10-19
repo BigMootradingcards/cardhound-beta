@@ -871,3 +871,12 @@ select.input option{background:#111116;color:var(--text)}
 @keyframes hshine{0%{background-position:-150% 0}60%,100%{background-position:150% 0}}
 .hound-work.sm .hound-paws,.hound-work.sm .hound-shadow{display:none}
 @media (prefers-reduced-motion:reduce){.hound-body,.hound-body .hound-img,.hound-shine,.hound-shadow,.hound-paws i{animation:none!important}.hound-shine{display:none}.hound-paws i{opacity:.4}}
+/* Simple beta: lookback, comps on hunt cards, My files */
+.lookback{margin:10px 0}.lb-chips{display:flex;flex-wrap:wrap;gap:8px}.lb-chips .ex-chip{font-size:15.5px;padding:10px 14px}.lb-chips .ex-chip.on{border-color:var(--gold);color:var(--gold)}
+.lb-custom{display:flex;gap:8px;margin-top:10px}.lb-custom[hidden]{display:none}.lb-custom .input{max-width:160px}
+.hr-comp{display:block;margin-top:4px;line-height:1.35}.hr-call{display:block;margin-top:4px;font-size:13px;font-weight:700}
+.hr-call.cp-BUY{color:#7ad69a}.hr-call.cp-HOLD{color:var(--gold)}.hr-call.cp-SELL{color:#f0a36b}.hr-call.cp-GRADE{color:#9cc3ff}
+.wl-hound.sm img{width:64px;margin:0 0 6px}
+.files-list{display:grid;gap:8px;margin-top:12px}.file-item{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.file-item a{color:inherit;text-decoration:underline;text-decoration-color:rgba(227,189,106,.4)}
+#f-filter{margin-top:4px}
