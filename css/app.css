@@ -880,3 +880,28 @@ select.input option{background:#111116;color:var(--text)}
 .files-list{display:grid;gap:8px;margin-top:12px}.file-item{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .file-item a{color:inherit;text-decoration:underline;text-decoration-color:rgba(227,189,106,.4)}
 #f-filter{margin-top:4px}
+/* Simple beta: results-first, decluttered (Oct 19) */
+.s-home{display:flex;flex-direction:column;gap:14px;padding-top:8vh}
+.s-q{font-size:32px;line-height:1.15;margin:0}
+.s-box{min-height:132px;font-size:18px;line-height:1.4}
+.s-go{width:100%;font-size:18px;min-height:54px}
+.s-sug{display:flex;flex-direction:column;gap:6px;margin-top:2px}
+.s-sug[hidden]{display:none}
+.s-line{margin:0;font-size:14px;color:var(--dim);cursor:pointer}
+.s-line::before{content:"“"}.s-line::after{content:"”"}
+.s-refs{margin:2px 0 0}.s-refs:empty{display:none}
+.s-top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:6px 0 12px;min-height:44px}
+.s-top:empty{display:none}
+.s-win{background:none;border:0;padding:0;font:inherit;font-size:13px;color:var(--muted);text-decoration:underline;text-underline-offset:3px;min-height:44px}
+.s-card{position:relative;padding-right:52px}
+.s-card .hr-main{color:inherit;text-decoration:none}
+.s-save{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;border:1px solid var(--line);background:none;color:var(--muted)}
+.s-card .s-save{position:absolute;top:10px;right:10px}
+.s-save.on,.s-save:disabled{color:var(--gold2);opacity:.8}
+.s-refine{margin:6px 0 0}.s-refine .input{width:100%}
+.lb-mini{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.lb-opt{background:none;border:1px solid var(--line);border-radius:999px;padding:6px 10px;font:inherit;font-size:13px;color:var(--muted);min-height:36px}
+.lb-opt.on{border-color:var(--gold);color:var(--gold2)}
+.lb-mini .lb-custom{display:flex;gap:6px}.lb-mini .lb-custom[hidden]{display:none}.lb-mini .lb-custom .input{width:80px;min-height:36px}
+.s-call{font-weight:800;background:none}.s-BUY{color:#7ad69a}.s-HOLD{color:var(--gold)}.s-SELL{color:#f0a36b}.s-GRADE{color:#9cc3ff}
+#btn-settings[hidden]{display:none}

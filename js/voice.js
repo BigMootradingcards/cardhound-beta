@@ -97,7 +97,7 @@ window.CH_VOICE = function (U) {
       var r0 = V.routeVoiceIntent(text, { currentCard: U.lastCard() });
       if (r0.intent === "card_hunt" && U.submitHunt) { U.submitHunt(text); return; }
       var LB = window.CH_LOOKBACK, days = LB ? LB.parse(text) : null;
-      if (LB && LB.isCompAsk(text) && !days) {
+      if (LB && LB.isCompAsk(text) && !days && !U.simple) {
         var qid = aiBot('<p>Before we look at comps:</p>' + LB.html("ask-lb-" + Date.now()));
         var qel = document.getElementById(qid), lbEl = qel && qel.querySelector(".lookback");
         LB.wire(lbEl, function (d) { if (lbEl) lbEl.outerHTML = '<p class="small muted">Comps: last ' + esc(LB.label(d)) + '</p>'; askAi(text, d); });

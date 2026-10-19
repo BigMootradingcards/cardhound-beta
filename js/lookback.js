@@ -1,5 +1,5 @@
-/* Comp lookback question: how far back to look on sold comps. Always asked when comps are requested
-   (unless the user already said a window); last choice is the highlighted default. On-device only. */
+/* Comp lookback: how far back to look on sold comps. Simple beta: never a blocking question; auto-pick 30 → 90 → 1 year
+   (or the user's own window) with a tiny "change" picker. The full card (html) remains for the full build. On-device only. */
 (function (root) {
   "use strict";
   var CHOICES = [[30, "30 days"], [90, "90 days"], [365, "1 year"]];
@@ -43,7 +43,22 @@
     });
     if (box) box.querySelector("button").onclick = function () { var n = parseInt(String(inp.value).replace(/[^0-9]/g, ""), 10); if (n >= 1 && n <= 3650) cb(remember(n)); else inp.focus(); };
   }
-  var api = { CHOICES: CHOICES, last: last, remember: remember, label: label, parse: parse, isCompAsk: isCompAsk, html: html, wire: wire };
+  /* Auto window (no blocking question): the user's own window if they said one; else 30 days, widened to 90 days,
+     then 1 year, while there are fewer than MIN exact sales. countFor(days) -> number of exact sales in that window. */
+  var AUTO = [30, 90, 365], MIN = 5;
+  function autoPick(countFor) {
+    var best = AUTO[0];
+    for (var i = 0; i < AUTO.length; i++) { var n = Number(countFor(AUTO[i])) || 0; if (n >= MIN) return AUTO[i]; if (n > 0) best = AUTO[i]; }
+    return best;
+  }
+  function autoNote() { return "Use sold comps from the last 30 days; if there are fewer than " + MIN + " exact sales, widen to 90 days, then 1 year. Say which window you used."; }
+  /* Tiny inline picker for "Comps: last 30 days · change". */
+  function mini(id, cur) {
+    return '<span class="lb-mini" id="' + esc(id) + '" role="group" aria-label="Comp window">' + CHOICES.map(function (c) {
+      return '<button type="button" class="lb-opt' + (c[0] === cur ? " on" : "") + '" data-days="' + c[0] + '"' + (c[0] === cur ? ' aria-pressed="true"' : "") + '>' + c[1] + '</button>';
+    }).join("") + '<button type="button" class="lb-opt" data-days="custom">Custom</button><span class="lb-custom" hidden><input class="input" inputmode="numeric" maxlength="4" placeholder="Days" aria-label="Custom days"><button type="button" class="btn btn-gold btn-sm">Use</button></span></span>';
+  }
+  var api = { AUTO: AUTO, MIN: MIN, autoPick: autoPick, autoNote: autoNote, mini: mini, CHOICES: CHOICES, last: last, remember: remember, label: label, parse: parse, isCompAsk: isCompAsk, html: html, wire: wire };
   root.CH_LOOKBACK = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(typeof window !== "undefined" ? window : globalThis);
